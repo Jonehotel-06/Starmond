@@ -1,0 +1,14 @@
+{% extends "emails/base.html" %}
+{% block subject %}Payment confirmed — {{ order.order_number }}{% endblock %}
+{% block content %}
+<h1 style="margin:0 0 12px;font-size:20px;">Payment confirmed</h1>
+<p style="margin:0 0 16px;">Thank you, {{ recipient_name }}. We have verified your payment of <strong>₦{{ order.amount_paid }}</strong> for order <strong>{{ order.order_number }}</strong>.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e6e8ec;border-radius:8px;font-size:14px;">
+  <tr><td style="padding:12px 16px;color:#6b7280;">Receipt</td><td align="right" style="padding:12px 16px;">{{ receipt_number }}</td></tr>
+  <tr><td style="padding:0 16px 12px;color:#6b7280;">Payment reference</td><td align="right" style="padding:0 16px 12px;">{{ payment.reference }}</td></tr>
+  <tr><td style="padding:0 16px 12px;color:#6b7280;">Paid</td><td align="right" style="padding:0 16px 12px;">₦{{ order.amount_paid }}</td></tr>
+  <tr><td style="padding:0 16px 12px;color:#6b7280;">Outstanding</td><td align="right" style="padding:0 16px 12px;">₦{{ order.amount_due }}</td></tr>
+</table>
+<p style="margin:18px 0 0;">Your order is now being prepared. You will be notified at each step, and you can track it any time from your account.</p>
+{% if order_url %}<p style="margin:20px 0 0;"><a href="{{ order_url }}" style="background:#0b5fff;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:600;display:inline-block;">View your order</a></p>{% endif %}
+{% endblock %}

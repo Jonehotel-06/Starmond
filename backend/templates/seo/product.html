@@ -1,0 +1,44 @@
+{% extends "seo/base.html" %}
+{% block content %}
+<div class="product">
+  <div class="gallery">
+    {% if product.primary_image %}
+      <img src="{{ product.primary_image.image.url }}" alt="{{ product.name }}" width="800" height="600">
+    {% else %}<div class="thumb" style="padding:60px 0;text-align:center;color:#5b6273">No image</div>{% endif %}
+  </div>
+  <div>
+    <h1>{{ page_heading }}</h1>
+    {% if product.short_description %}<p class="lede">{{ product.short_description }}</p>{% endif %}
+    <p class="price" style="font-size:1.4rem">&#8358;{{ product.price }}{% if product.compare_at_price %}<span class="was">&#8358;{{ product.compare_at_price }}</span>{% endif %}</p>
+    {% if in_stock %}<span class="badge">In stock</span>{% else %}<span class="badge out">Out of stock</span>{% endif %}
+    {% if variations %}
+      <h2 style="font-size:1rem;margin-top:18px">Options</h2>
+      <table class="specs">
+        <tr><th>Option</th><th>Price</th><th>Available</th></tr>
+        {% for v in variations %}
+          <tr><td>{{ v.label }}</td><td>&#8358;{{ v.price }}</td><td>{% if v.available > 0 %}{{ v.available }}{% else %}Out of stock{% endif %}</td></tr>
+        {% endfor %}
+      </table>
+    {% endif %}
+    {% if key_features %}
+      <h2 style="font-size:1rem;margin-top:18px">Key features</h2>
+      <ul class="features">{% for f in key_features %}<li>{{ f }}</li>{% endfor %}</ul>
+    {% endif %}
+    <a class="cta" href="/shop">Continue shopping</a>
+  </div>
+</div>
+
+{% if product.description %}
+<h2>Description</h2>
+<div class="lede">{{ product.description|linebreaks }}</div>
+{% endif %}
+
+{% if specifications %}
+<h2>Specifications</h2>
+<table class="specs">
+  {% for k, v in specifications.items %}<tr><th>{{ k }}</th><td>{{ v }}</td></tr>{% endfor %}
+</table>
+{% endif %}
+
+{% if product.warranty %}<p class="lede">Warranty: {{ product.warranty }}</p>{% endif %}
+{% endblock %}

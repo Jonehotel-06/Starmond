@@ -1,0 +1,17 @@
+{% extends "seo/base.html" %}
+{% block content %}
+<h1>{{ page_heading }}</h1>
+<form method="get" action="/shop" role="search" style="margin:10px 0 20px">
+  <input type="search" name="q" value="{{ query }}" placeholder="Search products" aria-label="Search products" style="padding:9px 12px;border:1px solid #e6e8ef;border-radius:8px;min-width:240px">
+  <button type="submit" style="padding:9px 14px;border:0;border-radius:8px;background:#0b6b4f;color:#fff">Search</button>
+</form>
+<p class="lede">{{ total }} product{{ total|pluralize }}{% if query %} matching &ldquo;{{ query }}&rdquo;{% endif %}.</p>
+{% if products %}
+<ul class="grid">{% for p in products %}{% include "seo/_card.html" with product=p %}{% endfor %}</ul>
+<div class="pager">
+  {% if page_number > 1 %}<a rel="prev" href="/shop?page={{ page_number|add:-1 }}{% if query %}&amp;q={{ query|urlencode }}{% endif %}">Previous</a>{% endif %}
+  <span>Page {{ page_number }} of {{ num_pages }}</span>
+  {% if page_number < num_pages %}<a rel="next" href="/shop?page={{ page_number|add:1 }}{% if query %}&amp;q={{ query|urlencode }}{% endif %}">Next</a>{% endif %}
+</div>
+{% else %}<p class="empty">No products found.</p>{% endif %}
+{% endblock %}

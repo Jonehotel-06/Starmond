@@ -1,0 +1,13 @@
+Hello {{ recipient_name }},
+
+Payment confirmed. We have verified your payment of NGN {{ order.amount_paid }} for order {{ order.order_number }}.
+
+Receipt: {{ receipt_number }}
+Payment reference: {{ payment.reference }}
+Outstanding: NGN {{ order.amount_due }}
+
+Your order is now being prepared.
+
+{% if order_url %}{{ order_url }}{% endif %}
+
+{{ business_name }}

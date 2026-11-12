@@ -1,0 +1,17 @@
+Hello {{ recipient_name }},
+
+Thanks for your order. We have received order {{ order.order_number }} and are waiting for payment confirmation.
+
+{% for item in items %}- {{ item.product_name }}{% if item.variation_label %} ({{ item.variation_label }}){% endif %} x{{ item.quantity }} — NGN {{ item.line_total }}
+{% endfor %}
+Subtotal: NGN {{ order.subtotal }}
+Discount: NGN {{ order.discount_total }}
+Delivery: NGN {{ order.shipping_total }}
+TOTAL: NGN {{ order.grand_total }}
+
+Deliver to: {{ order.shipping_full_name }}, {{ order.shipping_address_line }}, {{ order.shipping_city }}, {{ order.shipping_state }}.
+{% if pay_url %}Pay here: {{ pay_url }}{% endif %}
+
+This order is held until {{ order.expires_at }}.
+
+{{ business_name }}

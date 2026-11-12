@@ -1,0 +1,23 @@
+{% extends "seo/base.html" %}
+{% block content %}
+<h1>{{ page_heading }}</h1>
+{% if category.description %}<div class="lede">{{ category.description|linebreaks }}</div>{% endif %}
+{% if children %}
+  <h2>Sub-categories</h2>
+  <ul class="grid">
+  {% for c in children %}
+    <li class="card"><div class="body"><h3><a href="{{ c.absolute_path }}">{{ c.name }}</a></h3>
+    {% if c.short_description %}<p class="lede">{{ c.short_description }}</p>{% endif %}</div></li>
+  {% endfor %}
+  </ul>
+{% endif %}
+<h2>Products</h2>
+{% if products %}
+<ul class="grid">{% for p in products %}{% include "seo/_card.html" with product=p %}{% endfor %}</ul>
+<div class="pager">
+  {% if page_number > 1 %}<a rel="prev" href="{{ category.absolute_path }}?page={{ page_number|add:-1 }}">Previous</a>{% endif %}
+  <span>Page {{ page_number }} of {{ num_pages }}</span>
+  {% if page_number < num_pages %}<a rel="next" href="{{ category.absolute_path }}?page={{ page_number|add:1 }}">Next</a>{% endif %}
+</div>
+{% else %}<p class="empty">No products in this category yet.</p>{% endif %}
+{% endblock %}

@@ -1,0 +1,7 @@
+Hello {{ recipient_name }},
+
+Verify your email address using this link (expires in {{ expires_hours }} hours, single use):
+
+{{ verify_url }}
+
+{{ business_name }}

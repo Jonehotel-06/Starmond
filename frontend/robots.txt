@@ -1,0 +1,21 @@
+# robots.txt — STARMOND TECHNOLOGY LIMITED
+User-agent: *
+Allow: /
+Disallow: /cart.html
+Disallow: /checkout.html
+Disallow: /payment-callback.html
+Disallow: /order.html
+Disallow: /account.html
+Disallow: /login.html
+Disallow: /register.html
+Disallow: /forgot-password.html
+Disallow: /reset-password.html
+Disallow: /wishlist.html
+Disallow: /track-order.html
+Disallow: /admin/
+Disallow: /*?q=
+Disallow: /*?page=
+
+Sitemap: https://www.starmondtechnology.com/sitemap.xml
+Sitemap: https://www.starmondtechnology.com/sitemap-products.xml
+Sitemap: https://www.starmondtechnology.com/sitemap-categories.xml

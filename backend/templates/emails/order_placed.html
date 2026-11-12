@@ -1,0 +1,21 @@
+{% extends "emails/base.html" %}
+{% block subject %}Order {{ order.order_number }} received{% endblock %}
+{% block content %}
+<h1 style="margin:0 0 12px;font-size:20px;">Thanks for your order, {{ recipient_name }}.</h1>
+<p style="margin:0 0 16px;">We have received order <strong>{{ order.order_number }}</strong> and are waiting for your payment to be confirmed.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:14px;">
+  {% for item in items %}
+  <tr>
+    <td style="padding:8px 0;border-bottom:1px solid #eef0f3;">{{ item.product_name }}{% if item.variation_label %} <span style="color:#6b7280;">({{ item.variation_label }})</span>{% endif %}<br><span style="color:#6b7280;font-size:12px;">Qty {{ item.quantity }}</span></td>
+    <td align="right" style="padding:8px 0;border-bottom:1px solid #eef0f3;">₦{{ item.line_total }}</td>
+  </tr>
+  {% endfor %}
+  <tr><td style="padding:10px 0;color:#6b7280;">Subtotal</td><td align="right" style="padding:10px 0;">₦{{ order.subtotal }}</td></tr>
+  {% if order.discount_total != "0.00" %}<tr><td style="padding:4px 0;color:#059669;">Discount</td><td align="right" style="padding:4px 0;color:#059669;">−₦{{ order.discount_total }}</td></tr>{% endif %}
+  <tr><td style="padding:4px 0;color:#6b7280;">Delivery</td><td align="right" style="padding:4px 0;">₦{{ order.shipping_total }}</td></tr>
+  <tr><td style="padding:12px 0;font-weight:700;font-size:16px;">Total</td><td align="right" style="padding:12px 0;font-weight:700;font-size:16px;">₦{{ order.grand_total }}</td></tr>
+</table>
+<p style="margin:18px 0 0;">Deliver to: {{ order.shipping_full_name }}, {{ order.shipping_address_line }}, {{ order.shipping_city }}, {{ order.shipping_state }}.</p>
+{% if pay_url %}<p style="margin:20px 0 0;"><a href="{{ pay_url }}" style="background:#0b5fff;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:600;display:inline-block;">Pay now</a></p>{% endif %}
+<p style="margin:18px 0 0;color:#6b7280;font-size:13px;">This order will be held until {{ order.expires_at }}. Unpaid orders are released automatically.</p>
+{% endblock %}

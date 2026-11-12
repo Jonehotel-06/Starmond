@@ -1,0 +1,6 @@
+New contact enquiry
+
+{{ enquiry.name }} — {{ enquiry.email }}{% if enquiry.phone %} — {{ enquiry.phone }}{% endif %}
+Subject: {{ enquiry.subject }}
+
+{{ enquiry.message }}

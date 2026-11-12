@@ -1,0 +1,6 @@
+{% extends "seo/base.html" %}
+{% block content %}
+<h1>{{ page_heading }}</h1>
+{% if content_page.subtitle %}<p class="lede">{{ content_page.subtitle }}</p>{% endif %}
+<div class="lede">{{ content_page.body|safe }}</div>
+{% endblock %}

@@ -1,0 +1,9 @@
+Hello {{ recipient_name }},
+
+Your order {{ order.order_number }} is now: {{ status_label }}.
+
+{{ note }}
+{% if tracking_reference %}Tracking reference: {{ tracking_reference }}{% endif %}
+{% if order_url %}Track your order: {{ order_url }}{% endif %}
+
+{{ business_name }}
