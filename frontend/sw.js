@@ -1,56 +1,46 @@
-/* ==========================================================================
-   STARMOND TECHNOLOGY LIMITED — service worker
-   Strategy
-     • Pre-cache the shell: CSS, JS modules, brand images, offline page.
-     • Navigations: network first, fall back to cache, then /offline.html.
-     • Static assets: stale-while-revalidate.
-     • NEVER cache API traffic, checkout, account, order or payment responses.
-   ========================================================================== */
+/* ============================================================================
+   Service worker — STARMOND TECHNOLOGY LIMITED
+ *
+ * Caching policy (deliberately conservative):
+ *   • Precache: the offline page and the app shell's static CSS/JS/icons.
+ *   • Runtime cache: same-origin STATIC assets only (stale-while-revalidate).
+ *   • NEVER cached: any /api/ request, any HTML for cart/checkout/account/
+ *     orders/payments/admin, and any response to a non-GET request.
+ *   • Navigations: network-first with a short timeout, offline fallback page.
+ *
+ * A cached page can never claim an order or payment succeeded: those pages are
+ * not cached at all and always require a live backend verification.
+ * ========================================================================== */
+
 const VERSION = 'starmond-v1.0.0';
-const SHELL_CACHE = `${VERSION}-shell`;
+const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 
-const SHELL = [
-  './',
-  './index.html',
-  './offline.html',
-  './shop.html',
-  './assets/css/main.css',
-  './assets/css/admin.css',
-  './assets/js/config.js',
-  './assets/js/boot.js',
-  './assets/js/app.js',
-  './assets/js/env.js',
-  './assets/js/api.js',
-  './assets/js/utils.js',
-  './assets/js/store.js',
-  './assets/js/seo.js',
-  './assets/js/ui/toast.js',
-  './assets/js/ui/modal.js',
-  './assets/js/ui/cards.js',
-  './assets/js/ui/feedback.js',
-  './assets/js/ui/timeline.js',
-  './assets/img/favicon.svg',
-  './assets/img/icon-192.png',
-  './assets/img/icon-512.png'
+const PRECACHE = [
+  '/offline.html',
+  '/assets/css/variables.css',
+  '/assets/css/typography.css',
+  '/assets/css/main.css',
+  '/assets/css/components.css',
+  '/assets/css/skeletons.css',
+  '/assets/css/pages/storefront.css',
+  '/assets/css/responsive.css',
+  '/assets/js/config.js',
+  '/assets/icons/favicon.svg',
+  '/assets/icons/icon-192.png',
+  '/manifest.webmanifest',
 ];
 
-/* Paths that must never be cached, even momentarily. */
-const PRIVATE = [
-  '/checkout', '/payment-callback', '/order', '/account', '/wishlist',
-  '/cart', '/login', '/register', '/admin', '/api/', '/track-order'
-];
+/** Paths that must never be served from a cache. */
+const PRIVATE_PATH = /^\/(admin|api)(\/|$)|^\/(cart|checkout|account|orders|order-detail|wishlist|login|register|reset-password|forgot-password|verify-email|payment-success|payment-failed|payment-pending|track-order)\.html/;
 
-function isPrivate(url) {
-  return PRIVATE.some((fragment) => url.pathname.includes(fragment)) || url.searchParams.has('reference');
-}
+const STATIC_EXT = /\.(css|js|mjs|svg|png|jpg|jpeg|webp|avif|gif|woff2?|webmanifest)$/i;
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(SHELL_CACHE)
-      .then((cache) => cache.addAll(SHELL.map((path) => new Request(path, { cache: 'reload' }))))
-      .catch(() => undefined)
-      .then(() => self.skipWaiting())
+    caches.open(STATIC_CACHE)
+      .then((cache) => cache.addAll(PRECACHE).catch(() => undefined))
+      .then(() => self.skipWaiting()),
   );
 });
 
@@ -58,12 +48,12 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
       .then((keys) => Promise.all(keys.filter((key) => !key.startsWith(VERSION)).map((key) => caches.delete(key))))
-      .then(() => self.clients.claim())
+      .then(() => self.clients.claim()),
   );
 });
 
 self.addEventListener('message', (event) => {
-  if (event.data === 'SKIP_WAITING') self.skipWaiting();
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 self.addEventListener('fetch', (event) => {
@@ -72,34 +62,46 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
-  if (isPrivate(url)) return; /* private data always goes to the network */
+
+  // Never intercept the API or private surfaces.
+  if (PRIVATE_PATH.test(url.pathname) || url.pathname.startsWith('/api/')) return;
 
   if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, copy)).catch(() => undefined);
-          return response;
-        })
-        .catch(async () => (await caches.match(request)) || caches.match('./offline.html'))
-    );
+    event.respondWith(networkFirstNavigation(request));
     return;
   }
 
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      const network = fetch(request)
-        .then((response) => {
-          if (response.ok && (url.pathname.endsWith('.css') || url.pathname.endsWith('.js')
-              || url.pathname.match(/\.(svg|png|jpg|jpeg|webp|woff2?)$/))) {
-            const copy = response.clone();
-            caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, copy)).catch(() => undefined);
-          }
-          return response;
-        })
-        .catch(() => cached);
-      return cached || network;
-    })
-  );
+  if (STATIC_EXT.test(url.pathname)) {
+    event.respondWith(staleWhileRevalidate(request));
+  }
 });
+
+async function networkFirstNavigation(request) {
+  const url = new URL(request.url);
+  if (PRIVATE_PATH.test(url.pathname)) return fetch(request);
+  try {
+    const response = await fetch(request);
+    if (response.ok && response.type === 'basic') {
+      const cache = await caches.open(RUNTIME_CACHE);
+      cache.put(request, response.clone());
+    }
+    return response;
+  } catch {
+    const cached = await caches.match(request);
+    if (cached) return cached;
+    const offline = await caches.match('/offline.html');
+    return offline || new Response('You are offline.', {
+      status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    });
+  }
+}
+
+async function staleWhileRevalidate(request) {
+  const cache = await caches.open(STATIC_CACHE);
+  const cached = await cache.match(request);
+  const network = fetch(request).then((response) => {
+    if (response.ok && response.type === 'basic') cache.put(request, response.clone());
+    return response;
+  }).catch(() => null);
+  return cached || (await network) || new Response('', { status: 504 });
+}

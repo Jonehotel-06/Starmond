@@ -1,46 +1,92 @@
 /**
- * STARMOND TECHNOLOGY LIMITED — runtime configuration.
+ * config.js — PUBLIC, deployment-time configuration.
  *
- * This is the ONLY place deployment-specific values live. Replace the values
- * below (or inject them at deploy time) — never hardcode a backend URL inside
- * application modules, and never put secret keys here: this file is public.
+ * ┌──────────────────────────────────────────────────────────────────────────┐
+ * │ THIS FILE IS GENERATED. Do not hand-edit in a deployed environment.      │
+ * │ Regenerate with:  node tools/write-config.mjs                            │
+ * │ It reads API_BASE_URL (and friends) from the build environment / .env.   │
+ * └──────────────────────────────────────────────────────────────────────────┘
  *
- * Deployment note: if the host can rewrite files, generate this file with the
- * real values. If it cannot, set the values in <meta> tags in the page <head>
- * (see assets/js/env.js) — a <meta> value always wins over this file.
+ * A browser cannot read a server-side .env file. The build step therefore
+ * writes the *public* values here, and this module is loaded before api.js.
+ *
+ * SECURITY: only public values belong here. Never put a Paystack secret key,
+ * Django SECRET_KEY, database credential or API token in this file — it is
+ * served to every visitor.
+ *
+ * API_BASE_URL defaults to a SAME-ORIGIN relative path. That is deliberately
+ * not a hardcoded backend host: production deployments either
+ *   (a) reverse-proxy /api/ to Django (recommended — no CORS, cookies work), or
+ *   (b) inject an absolute https://api.your-domain.example at build time.
  */
-window.STARMOND_CONFIG = {
-  /* Base URL of the Django REST Framework deployment, WITHOUT a trailing slash.
-     Example: "https://api.starmondtechnology.com"
-     Leave empty to run in demo mode (sample data, no API calls). */
-  API_BASE_URL: '',
+(function initStarmondConfig(global) {
+  'use strict';
 
-  /* Public site origin, used for canonical URLs and share links. */
-  SITE_URL: 'https://www.starmondtechnology.com',
+  var DEFAULTS = {
+    /** Public REST root. Relative = same-origin reverse proxy. */
+    API_BASE_URL: '/api/v1',
 
-  /* Paystack PUBLIC key only. Payment initialisation still happens server-side. */
-  PAYSTACK_PUBLIC_KEY: '',
+    /** Canonical public origin of this storefront, e.g. https://starmond.example
+     *  Empty string = derive from window.location.origin at runtime. */
+    SITE_URL: '',
 
-  /* "production" | "staging" | "development" */
-  ENVIRONMENT: 'production',
+    /** 'session' (DRF session + CSRF, httpOnly cookie) or 'jwt' (Bearer access
+     *  token in memory + httpOnly refresh cookie). Session is the safer default. */
+    AUTH_MODE: 'session',
 
-  /* Hosts where the storefront is expected to serve real traffic. Outside this
-     list (and with no API_BASE_URL) the site runs in demo mode with a visible
-     sample-data banner so it can never be mistaken for live business data. */
-  PRODUCTION_HOSTS: ['www.starmondtechnology.com', 'starmondtechnology.com'],
+    /** Name of the CSRF cookie Django sets (django.middleware.csrf). */
+    CSRF_COOKIE_NAME: 'csrftoken',
+    CSRF_HEADER_NAME: 'X-CSRFToken',
 
-  API_VERSION: 'v1',
+    /** Request behaviour. */
+    REQUEST_TIMEOUT_MS: 20000,
+    RETRY_ATTEMPTS: 2,
+    RETRY_BASE_DELAY_MS: 400,
 
-  /* When the backend serves the server-rendered route /product/<slug>/ (see
-     reports/SEO_STRATEGY.md), set this to true so every internal product link
-     points at the crawlable pretty URL instead of product.html?slug=… */
-  USE_PRETTY_PRODUCT_URLS: false,
-  CART_TOKEN_KEY: 'starmond_cart_token',
-  ACCESS_TOKEN_KEY: 'starmond_access_token',
-  REFRESH_TOKEN_KEY: 'starmond_refresh_token',
-  WISHLIST_KEY: 'starmond_wishlist',
-  CHECKOUT_DRAFT_KEY: 'starmond_checkout_draft',
-  BUY_NOW_KEY: 'starmond_buy_now',
-  REQUEST_TIMEOUT_MS: 20000,
-  PRODUCTS_PER_PAGE: 12
-};
+    /** Public catalogue cache TTL (never used for cart/checkout/account). */
+    PUBLIC_CACHE_TTL_MS: 60000,
+
+    /** Search debounce, per the UX spec. */
+    SEARCH_DEBOUNCE_MS: 300,
+
+    /** Default currency; the API remains authoritative on every money value. */
+    CURRENCY: 'NGN',
+    LOCALE: 'en-NG',
+
+    /** Paystack PUBLIC key is NOT needed: the backend initialises the
+     *  transaction and returns an authorization_url we redirect to. */
+
+    /** Set true only for a local contract-mock preview. Adds a persistent,
+     *  unmistakable banner. MUST be false in production. */
+    CONTRACT_PREVIEW: false,
+    CONTRACT_PREVIEW_LABEL: 'Contract preview — synthetic test data from a local mock API. Not real products, prices or stock.',
+
+    /** Service worker registration. */
+    ENABLE_SW: true,
+
+    /** Build stamp, replaced by the build tool for cache versioning. */
+    BUILD_ID: 'dev'
+  };
+
+  var provided = global.STARMOND_CONFIG || {};
+
+  // A <meta name="starmond:api-base" content="..."> tag allows an operator to
+  // override the API root without a rebuild (useful for staging smoke tests).
+  var metaOverride = null;
+  if (typeof document !== 'undefined') {
+    var meta = document.querySelector('meta[name="starmond:api-base"]');
+    if (meta && meta.content) metaOverride = { API_BASE_URL: meta.content };
+  }
+
+  var merged = Object.assign({}, DEFAULTS, provided, metaOverride || {});
+
+  // Normalise: strip a trailing slash so callers can always append '/path/'.
+  if (typeof merged.API_BASE_URL === 'string') {
+    merged.API_BASE_URL = merged.API_BASE_URL.replace(/\/+$/, '');
+  }
+  if (typeof merged.SITE_URL === 'string') {
+    merged.SITE_URL = merged.SITE_URL.replace(/\/+$/, '');
+  }
+
+  global.STARMOND_CONFIG = Object.freeze(merged);
+})(typeof window !== 'undefined' ? window : globalThis);

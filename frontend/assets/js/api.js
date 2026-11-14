@@ -1,373 +1,543 @@
 /**
- * CENTRALISED API CLIENT — frontend/assets/js/api.js
+ * api.js — the single, centralized HTTP client.
  *
- * Every backend call in this storefront goes through this module. Nothing else
- * in the codebase is allowed to call fetch() against the API.
+ * EVERY network call in this application goes through this module. No feature
+ * module may call fetch() directly.
  *
  * Responsibilities
- *  - Build URLs from the runtime-configured API base (never hardcoded).
- *  - Attach authentication (Bearer access token) and the guest cart token.
- *  - JSON encode/decode, request timeout, single retry after a 401 refresh.
- *  - Normalise DRF responses (paginated or list) and DRF errors
- *    ({detail}, {"field": ["msg"]}) into one ApiError shape.
- *  - Delegate to the clearly-labelled sample-data module in demo mode only.
+ *   • base URL from deployment config (never hardcoded)
+ *   • authentication: DRF session + CSRF, or JWT bearer + refresh
+ *   • guest cart token header
+ *   • timeouts via AbortController, caller-supplied cancellation
+ *   • JSON and FormData bodies
+ *   • normalized errors (including DRF field errors)
+ *   • safe retries: idempotent methods only, network/429/5xx only, backoff+jitter
+ *   • in-flight request deduplication for GETs
+ *   • short-TTL caching for PUBLIC catalogue reads only
+ *   • offline / network-failure detection
  *
- * The backend is the single source of truth for prices, stock, totals, order
- * state and permissions. This client never computes money or business state.
+ * It deliberately contains NO business logic: no totals, no stock decisions,
+ * no discount maths, no payment verification.
  */
-import { CONFIG, API_ROOT, IS_DEMO } from './env.js';
-import { stored, forget, store } from './utils.js';
+
+import { buildQuery, randomToken, createStorage, sleep } from './utils.js';
+
+const CONFIG = (typeof window !== 'undefined' && window.STARMOND_CONFIG) || {};
+const storage = createStorage('local');
+
+const IDEMPOTENT = new Set(['GET', 'HEAD', 'OPTIONS']);
+const UNSAFE = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+/** Paths whose responses must never be cached or deduplicated across mounts. */
+const PRIVATE_PATH = /\/(auth|account|cart|checkout|orders|payments|wishlist|refunds|admin|notifications|me)\b/i;
+
+/* ============================================================================
+   Error model
+   ========================================================================== */
 
 export class ApiError extends Error {
-  constructor(message, { status = 0, code = 'error', fields = null, payload = null } = {}) {
+  constructor(message, {
+    status = 0, code = 'error', data = null, fieldErrors = null,
+    kind = 'unknown', url = '', retryAfter = null,
+  } = {}) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
-    this.fields = fields;
-    this.payload = payload;
+    this.data = data;
+    this.fieldErrors = fieldErrors;
+    this.kind = kind;      // network | timeout | aborted | http | parse
+    this.url = url;
+    this.retryAfter = retryAfter;
   }
-  get isNetwork() { return this.status === 0; }
-  get isAuth() { return this.status === 401 || this.status === 403; }
+
+  get isNetwork() { return this.kind === 'network'; }
+  get isTimeout() { return this.kind === 'timeout'; }
+  get isAborted() { return this.kind === 'aborted' || this.code === 'aborted'; }
+  get isOffline() { return this.code === 'offline'; }
+  get isAuth() { return this.status === 401; }
+  get isForbidden() { return this.status === 403; }
+  get isNotFound() { return this.status === 404; }
   get isValidation() { return this.status === 400 || this.status === 422; }
-}
+  get isConflict() { return this.status === 409; }
+  get isRateLimited() { return this.status === 429; }
+  get isServer() { return this.status >= 500; }
+  get isUnavailable() { return this.status === 503 || this.status === 0; }
 
-/* ------------------------------------------------------------------ tokens */
-let refreshPromise = null;
-
-export function getAccessToken() { return stored(CONFIG.ACCESS_TOKEN_KEY, null); }
-export function getRefreshToken() { return stored(CONFIG.REFRESH_TOKEN_KEY, null); }
-
-export function saveTokens({ access, refresh } = {}) {
-  if (access) store(CONFIG.ACCESS_TOKEN_KEY, access);
-  if (refresh) store(CONFIG.REFRESH_TOKEN_KEY, refresh);
-}
-
-export function clearTokens() {
-  forget(CONFIG.ACCESS_TOKEN_KEY);
-  forget(CONFIG.REFRESH_TOKEN_KEY);
-}
-
-function cartToken() { return stored(CONFIG.CART_TOKEN_KEY, null); }
-
-/* ------------------------------------------------------- helpers / shaping */
-function buildUrl(path, params) {
-  const clean = path.startsWith('/') ? path : `/${path}`;
-  const url = new URL(`${API_ROOT}${clean}`, window.location.origin);
-  if (params) {
-    Object.entries(params).forEach(([key, value]) => {
-      if (value === undefined || value === null || value === '' || value === false) return;
-      if (Array.isArray(value)) value.forEach((v) => url.searchParams.append(key, v));
-      else url.searchParams.set(key, String(value === true ? '1' : value));
-    });
+  /** A message safe to show a shopper. */
+  get userMessage() {
+    if (this.isOffline) return 'You appear to be offline. Reconnect and try again.';
+    if (this.isTimeout) return 'The store took too long to respond. Please try again.';
+    if (this.isNetwork) return 'We could not reach the store. Check your connection and try again.';
+    if (this.isRateLimited) return 'Too many requests. Please wait a moment and try again.';
+    if (this.isForbidden) return 'You do not have permission to perform this action.';
+    if (this.isNotFound) return 'We could not find what you were looking for.';
+    if (this.isServer) return 'The store is having a problem right now. Please try again shortly.';
+    return this.message || 'Something went wrong. Please try again.';
   }
-  return url.toString();
 }
 
-function extractErrorMessage(payload, status) {
-  if (!payload) return defaultMessageForStatus(status);
-  if (typeof payload === 'string') return payload;
-  if (payload.detail) return payload.detail;
-  if (payload.message) return payload.message;
-  const firstKey = Object.keys(payload)[0];
-  if (firstKey) {
-    const value = payload[firstKey];
-    const text = Array.isArray(value) ? value[0] : String(value);
-    return firstKey === 'non_field_errors' ? text : `${prettifyField(firstKey)}: ${text}`;
+/**
+ * Normalize the many shapes a DRF backend can return into one object.
+ * Supported: {detail}, {non_field_errors}, {field: [msgs]}, {message},
+ * {error: {code, message, fields}}, plain strings, and HTML error pages.
+ */
+export function normalizeErrorBody(body, status) {
+  const fallback = `Request failed (${status})`;
+  if (!body) return { message: fallback, code: `http_${status}`, fieldErrors: null };
+
+  if (typeof body === 'string') {
+    const text = body.trim();
+    if (text.startsWith('<')) return { message: fallback, code: `http_${status}`, fieldErrors: null };
+    return { message: text.slice(0, 400), code: `http_${status}`, fieldErrors: null };
   }
-  return defaultMessageForStatus(status);
-}
 
-function prettifyField(key) {
-  return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-}
+  if (Array.isArray(body)) {
+    return { message: body.map(String).join(' '), code: `http_${status}`, fieldErrors: null };
+  }
 
-function defaultMessageForStatus(status) {
-  if (status === 0) return 'We could not reach the server. Check your connection and try again.';
-  if (status === 400 || status === 422) return 'Some of the details provided were not accepted.';
-  if (status === 401) return 'Your session has expired. Please sign in again.';
-  if (status === 403) return 'You do not have permission to do that.';
-  if (status === 404) return 'That item could not be found.';
-  if (status === 409) return 'That action conflicts with the current state of the record.';
-  if (status === 429) return 'Too many requests. Please wait a moment and try again.';
-  if (status >= 500) return 'The server had a problem completing that request.';
-  return 'Something went wrong. Please try again.';
-}
+  const fieldErrors = {};
+  let message = '';
+  let code = body.code || `http_${status}`;
 
-function fieldErrors(payload) {
-  if (!payload || typeof payload !== 'object') return null;
-  const fields = {};
-  Object.entries(payload).forEach(([key, value]) => {
-    if (key === 'detail' || key === 'message' || key === 'code') return;
-    fields[key] = Array.isArray(value) ? value[0] : String(value);
+  if (body.error && typeof body.error === 'object') {
+    message = body.error.message || body.error.detail || '';
+    code = body.error.code || code;
+    if (body.error.fields && typeof body.error.fields === 'object') {
+      Object.assign(fieldErrors, flattenFields(body.error.fields));
+    }
+  }
+
+  if (!message) {
+    message = body.detail || body.message || body.error_description || '';
+    if (typeof message !== 'string') message = '';
+  }
+
+  Object.entries(body).forEach(([key, value]) => {
+    if (['detail', 'message', 'code', 'error', 'status'].includes(key)) return;
+    if (key === 'non_field_errors') {
+      const text = asMessages(value).join(' ');
+      message = message ? `${message} ${text}` : text;
+      return;
+    }
+    fieldErrors[key] = asMessages(value);
   });
-  return Object.keys(fields).length ? fields : null;
-}
 
-/** Normalise a DRF list response (paginated or plain array). */
-export function toPage(payload, fallbackPage = 1) {
-  if (Array.isArray(payload)) {
-    return { items: payload, count: payload.length, page: 1, pages: 1, pageSize: payload.length, next: null, previous: null };
+  if (!message) {
+    const first = Object.values(fieldErrors).flat()[0];
+    message = first || fallback;
   }
-  const items = payload?.results ?? payload?.items ?? payload?.data ?? [];
-  const count = payload?.count ?? items.length;
-  const pageSize = payload?.page_size ?? payload?.pageSize ?? (items.length || CONFIG.PRODUCTS_PER_PAGE);
-  const page = payload?.page ?? payload?.current_page ?? fallbackPage;
+
   return {
-    items: Array.isArray(items) ? items : [],
-    count,
-    page,
-    pages: payload?.num_pages ?? payload?.pages ?? Math.max(1, Math.ceil(count / (pageSize || 1))),
-    pageSize,
-    next: payload?.next ?? null,
-    previous: payload?.previous ?? null
+    message,
+    code,
+    fieldErrors: Object.keys(fieldErrors).length ? fieldErrors : null,
   };
 }
 
-/* --------------------------------------------------------------- transport */
-async function rawRequest(method, path, options = {}) {
-  const {
-    params, body, headers = {}, auth = false, timeout = CONFIG.REQUEST_TIMEOUT_MS,
-    signal, raw = false, form = false
-  } = options;
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error('timeout')), timeout);
-  if (signal) signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
-
-  const finalHeaders = { Accept: 'application/json', ...headers };
-  if (body !== undefined && !form) finalHeaders['Content-Type'] = 'application/json';
-  if (auth) {
-    const token = getAccessToken();
-    if (token) finalHeaders.Authorization = `Bearer ${token}`;
-  }
-  const cToken = cartToken();
-  if (cToken) finalHeaders['X-Cart-Token'] = cToken;
-
-  let response;
-  try {
-    response = await fetch(buildUrl(path, params), {
-      method,
-      headers: finalHeaders,
-      body: body === undefined ? undefined : (form ? body : JSON.stringify(body)),
-      credentials: 'include',
-      signal: controller.signal,
-      cache: 'no-store'
-    });
-  } catch (err) {
-    clearTimeout(timer);
-    if (err?.name === 'AbortError') {
-      throw new ApiError('The request took too long. Please try again.', { status: 0, code: 'timeout' });
-    }
-    throw new ApiError(defaultMessageForStatus(0), { status: 0, code: 'network' });
-  }
-  clearTimeout(timer);
-
-  /* Guest cart identity: the backend may hand one back on any cart response. */
-  const returnedCartToken = response.headers.get('X-Cart-Token') || response.headers.get('X-Cart-Id');
-  if (returnedCartToken) store(CONFIG.CART_TOKEN_KEY, returnedCartToken);
-
-  if (response.status === 204) return { status: 204, data: null, headers: response.headers };
-  const isJson = (response.headers.get('content-type') || '').includes('application/json');
-  const payload = isJson ? await response.json().catch(() => null) : await response.text();
-
-  if (!response.ok) {
-    throw new ApiError(extractErrorMessage(payload, response.status), {
-      status: response.status,
-      code: payload?.code || `http_${response.status}`,
-      fields: fieldErrors(payload),
-      payload
-    });
-  }
-  return { status: response.status, data: raw ? payload : payload, headers: response.headers };
+function asMessages(value) {
+  if (Array.isArray(value)) return value.map((v) => (typeof v === 'string' ? v : v?.message || JSON.stringify(v)));
+  if (value && typeof value === 'object') return Object.values(value).flat().map(String);
+  return [String(value)];
 }
 
-/** Refresh the access token once, sharing the in-flight promise. */
-async function refreshAccessToken() {
-  const refresh = getRefreshToken();
-  if (!refresh) return false;
-  if (!refreshPromise) {
-    refreshPromise = (async () => {
+function flattenFields(fields, prefix = '') {
+  const out = {};
+  Object.entries(fields).forEach(([key, value]) => {
+    const name = prefix ? `${prefix}.${key}` : key;
+    if (Array.isArray(value) || typeof value === 'string') out[name] = asMessages(value);
+    else if (value && typeof value === 'object') Object.assign(out, flattenFields(value, name));
+  });
+  return out;
+}
+
+/* ============================================================================
+   Client
+   ========================================================================== */
+
+class ApiClient {
+  constructor() {
+    this.baseUrl = CONFIG.API_BASE_URL ?? '/api/v1';
+    this.timeout = CONFIG.REQUEST_TIMEOUT_MS ?? 20000;
+    this.retryAttempts = CONFIG.RETRY_ATTEMPTS ?? 2;
+    this.retryBaseDelay = CONFIG.RETRY_BASE_DELAY_MS ?? 400;
+    this.cacheTtl = CONFIG.PUBLIC_CACHE_TTL_MS ?? 60000;
+    this.authMode = CONFIG.AUTH_MODE || 'session';
+
+    /** @type {Map<string, Promise<any>>} in-flight GET deduplication */
+    this.inflight = new Map();
+    /** @type {Map<string, {expires:number, value:any}>} public read cache */
+    this.cache = new Map();
+    /** In-memory only. Never persisted to localStorage. */
+    this.accessToken = null;
+    this._refreshPromise = null;
+    this._listeners = new Map();
+    this._online = typeof navigator === 'undefined' ? true : navigator.onLine !== false;
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', () => { this._online = true; this.emit('online'); });
+      window.addEventListener('offline', () => { this._online = false; this.emit('offline'); });
+    }
+  }
+
+  /* ------------------------------------------------------------- events -- */
+
+  on(event, handler) {
+    if (!this._listeners.has(event)) this._listeners.set(event, new Set());
+    this._listeners.get(event).add(handler);
+    return () => this._listeners.get(event)?.delete(handler);
+  }
+
+  emit(event, payload) {
+    this._listeners.get(event)?.forEach((fn) => {
+      try { fn(payload); } catch (err) { console.error('[api] listener error', err); }
+    });
+  }
+
+  get isOnline() { return this._online; }
+
+  /* --------------------------------------------------------------- auth -- */
+
+  setAccessToken(token) { this.accessToken = token || null; }
+  clearAccessToken() { this.accessToken = null; }
+
+  getCartToken() {
+    let token = storage.get('cart_token');
+    if (!token) {
+      token = randomToken(24);
+      storage.set('cart_token', token);
+    }
+    return token;
+  }
+
+  rotateCartToken() {
+    const token = randomToken(24);
+    storage.set('cart_token', token);
+    return token;
+  }
+
+  clearCartToken() { storage.remove('cart_token'); }
+
+  readCookie(name) {
+    if (typeof document === 'undefined') return null;
+    const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+
+  /* ---------------------------------------------------------------- url -- */
+
+  url(path, params) {
+    const clean = String(path).startsWith('/') ? path : `/${path}`;
+    const base = /^https?:\/\//i.test(clean) ? clean : `${this.baseUrl}${clean}`;
+    return `${base}${params ? buildQuery(params) : ''}`;
+  }
+
+  /* -------------------------------------------------------------- cache -- */
+
+  isCacheable(path) { return !PRIVATE_PATH.test(String(path)); }
+
+  cacheKey(url, headers) {
+    return `${url}|${headers['X-Cart-Token'] || ''}|${this.accessToken ? 'auth' : 'anon'}`;
+  }
+
+  /** Invalidate public caches. Call after any mutation that affects catalogue. */
+  invalidate(prefix = '') {
+    if (!prefix) { this.cache.clear(); return; }
+    [...this.cache.keys()].forEach((key) => { if (key.startsWith(prefix)) this.cache.delete(key); });
+  }
+
+  /* ------------------------------------------------------------ request -- */
+
+  /**
+   * @param {string} path
+   * @param {object} [options]
+   * @param {string} [options.method='GET']
+   * @param {object|FormData} [options.body]
+   * @param {object} [options.params] query parameters
+   * @param {AbortSignal} [options.signal]
+   * @param {boolean} [options.cache=false] opt-in public caching
+   * @param {boolean} [options.dedupe=true]
+   * @param {number} [options.timeout]
+   * @param {number} [options.retries]
+   * @param {boolean} [options.auth=true] attach credentials
+   * @param {boolean} [options.raw=false] resolve the Response instead of JSON
+   */
+  async request(path, options = {}) {
+    const {
+      method = 'GET', body, params, signal, cache = false, dedupe = true,
+      timeout = this.timeout, retries, raw = false, auth = true, headers: extraHeaders = {},
+    } = options;
+
+    const verb = method.toUpperCase();
+    const url = this.url(path, params);
+    const canCache = cache && verb === 'GET' && this.isCacheable(path);
+    const headers = this.buildHeaders(verb, body, auth, extraHeaders);
+    const key = this.cacheKey(url, headers);
+
+    if (canCache) {
+      const hit = this.cache.get(key);
+      if (hit && hit.expires > Date.now()) return hit.value;
+    }
+
+    if (verb === 'GET' && dedupe && this.inflight.has(key)) {
+      return this.inflight.get(key);
+    }
+
+    const attemptLimit = retries ?? (IDEMPOTENT.has(verb) ? this.retryAttempts : 0);
+    const promise = this.execute(url, { verb, body, headers, timeout, signal, attemptLimit, raw, path })
+      .then((value) => {
+        if (canCache) this.cache.set(key, { expires: Date.now() + this.cacheTtl, value });
+        return value;
+      })
+      .finally(() => { this.inflight.delete(key); });
+
+    if (verb === 'GET' && dedupe) this.inflight.set(key, promise);
+    return promise;
+  }
+
+  buildHeaders(verb, body, auth, extra) {
+    const headers = { Accept: 'application/json', ...extra };
+
+    if (body !== undefined && body !== null && !(body instanceof FormData)) {
+      headers['Content-Type'] = 'application/json';
+    }
+
+    if (auth) {
+      if (this.authMode === 'jwt' && this.accessToken) {
+        headers.Authorization = `Bearer ${this.accessToken}`;
+      }
+      if (UNSAFE.has(verb)) {
+        const csrf = this.readCookie(CONFIG.CSRF_COOKIE_NAME || 'csrftoken');
+        if (csrf) headers[CONFIG.CSRF_HEADER_NAME || 'X-CSRFToken'] = csrf;
+      }
+      const cartToken = storage.get('cart_token');
+      if (cartToken) headers['X-Cart-Token'] = cartToken;
+    }
+
+    return headers;
+  }
+
+  async execute(url, { verb, body, headers, timeout, signal, attemptLimit, raw, path }) {
+    let attempt = 0;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        throw new ApiError('You appear to be offline.', { code: 'offline', kind: 'network', url });
+      }
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(new DOMException('Timeout', 'TimeoutError')), timeout);
+      const onAbort = () => controller.abort(signal.reason);
+      if (signal) {
+        if (signal.aborted) { clearTimeout(timer); throw new ApiError('Request cancelled.', { code: 'aborted', kind: 'aborted', url }); }
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+
+      let response;
       try {
-        const { data } = await rawRequest('POST', '/auth/refresh/', { body: { refresh } });
-        const access = data?.access || data?.access_token;
-        if (!access) return false;
-        saveTokens({ access, refresh: data?.refresh || refresh });
+        response = await fetch(url, {
+          method: verb,
+          headers,
+          body: body === undefined || body === null
+            ? undefined
+            : (body instanceof FormData ? body : JSON.stringify(body)),
+          credentials: 'include',
+          signal: controller.signal,
+          redirect: 'follow',
+          cache: 'no-store',
+        });
+      } catch (err) {
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
+
+        const abortedByCaller = signal?.aborted;
+        const isTimeout = err?.name === 'TimeoutError' || (!abortedByCaller && err?.name === 'AbortError');
+
+        if (abortedByCaller) {
+          throw new ApiError('Request cancelled.', { code: 'aborted', kind: 'aborted', url });
+        }
+        const error = isTimeout
+          ? new ApiError('The request timed out.', { code: 'timeout', kind: 'timeout', url })
+          : new ApiError('Network request failed.', { code: 'network_error', kind: 'network', url });
+
+        if (attempt < attemptLimit && IDEMPOTENT.has(verb)) {
+          attempt += 1;
+          await sleep(this.backoff(attempt));
+          continue;
+        }
+        this.emit('network-error', error);
+        throw error;
+      }
+
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+
+      // 401 on a JWT deployment: try one silent refresh, then replay once.
+      if (response.status === 401 && this.authMode === 'jwt' && !url.includes('/auth/refresh') && !headers['X-Retried-Auth']) {
+        const refreshed = await this.tryRefresh();
+        if (refreshed) {
+          const retryHeaders = { ...this.buildHeaders(verb, body, true, {}), 'X-Retried-Auth': '1' };
+          return this.execute(url, { verb, body, headers: retryHeaders, timeout, signal, attemptLimit: 0, raw, path });
+        }
+      }
+
+      if (response.ok) {
+        if (raw) return response;
+        if (response.status === 204) return null;
+        const type = response.headers.get('content-type') || '';
+        if (type.includes('application/json')) {
+          try { return await response.json(); }
+          catch {
+            throw new ApiError('The store returned an unreadable response.', {
+              status: response.status, code: 'parse_error', kind: 'parse', url,
+            });
+          }
+        }
+        if (type.includes('text/')) return await response.text();
+        return await response.blob();
+      }
+
+      // Retryable server / throttling failures on idempotent verbs only.
+      const retryable = (response.status >= 500 || response.status === 429) && IDEMPOTENT.has(verb);
+      if (retryable && attempt < attemptLimit) {
+        attempt += 1;
+        const retryAfter = Number(response.headers.get('Retry-After'));
+        const wait = Number.isFinite(retryAfter) && retryAfter > 0
+          ? Math.min(retryAfter * 1000, 10000)
+          : this.backoff(attempt);
+        await sleep(wait);
+        continue;
+      }
+
+      let parsed = null;
+      try {
+        const type = response.headers.get('content-type') || '';
+        parsed = type.includes('application/json') ? await response.json() : await response.text();
+      } catch { /* body may be empty */ }
+
+      const { message, code, fieldErrors } = normalizeErrorBody(parsed, response.status);
+      const error = new ApiError(message, {
+        status: response.status,
+        code,
+        data: parsed,
+        fieldErrors,
+        kind: 'http',
+        url,
+        retryAfter: response.headers.get('Retry-After'),
+      });
+
+      if (response.status === 401) this.emit('unauthorized', error);
+      if (response.status === 403) this.emit('forbidden', error);
+      if (response.status >= 500) this.emit('server-error', error);
+
+      // Any successful-path mutation clears stale public caches.
+      throw error;
+    }
+  }
+
+  backoff(attempt) {
+    const base = this.retryBaseDelay * (2 ** (attempt - 1));
+    return Math.min(base + Math.random() * 150, 5000);
+  }
+
+  async tryRefresh() {
+    if (this._refreshPromise) return this._refreshPromise;
+    this._refreshPromise = (async () => {
+      try {
+        const res = await fetch(this.url('/auth/refresh/'), {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: '{}',
+        });
+        if (!res.ok) return false;
+        const data = await res.json();
+        const token = data.access || data.access_token || data.token;
+        if (!token) return false;
+        this.setAccessToken(token);
+        this.emit('token-refreshed', token);
         return true;
       } catch {
-        clearTokens();
         return false;
       } finally {
-        refreshPromise = null;
+        this._refreshPromise = null;
       }
     })();
+    return this._refreshPromise;
   }
-  return refreshPromise;
+
+  /* ------------------------------------------------------------ verbs ---- */
+
+  get(path, options = {}) { return this.request(path, { ...options, method: 'GET' }); }
+  post(path, body, options = {}) { return this.request(path, { ...options, method: 'POST', body }); }
+  put(path, body, options = {}) { return this.request(path, { ...options, method: 'PUT', body }); }
+  patch(path, body, options = {}) { return this.request(path, { ...options, method: 'PATCH', body }); }
+  delete(path, options = {}) { return this.request(path, { ...options, method: 'DELETE' }); }
+
+  /** Public catalogue read: cached + deduplicated. */
+  publicGet(path, options = {}) {
+    return this.request(path, { ...options, method: 'GET', cache: true, dedupe: true });
+  }
+
+  /** Private read: never cached, never deduplicated across navigations. */
+  privateGet(path, options = {}) {
+    return this.request(path, { ...options, method: 'GET', cache: false, dedupe: false });
+  }
+
+  /** Multipart upload (images, media library, CSV import). */
+  upload(path, formData, options = {}) {
+    return this.request(path, { ...options, method: options.method || 'POST', body: formData });
+  }
+
+  /** Fetch a backend-generated export (CSV/XLSX/PDF) as a Blob. */
+  async download(path, options = {}) {
+    const response = await this.request(path, { ...options, method: 'GET', raw: true, cache: false, dedupe: false });
+    const blob = await response.blob();
+    const disposition = response.headers.get('content-disposition') || '';
+    const match = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
+    return { blob, filename: match ? decodeURIComponent(match[1]) : null };
+  }
 }
 
-async function request(method, path, options = {}) {
-  if (IS_DEMO) {
-    const { handleMockRequest } = await import('./mock/mock-api.js');
-    return handleMockRequest(method, path, options);
+export const api = new ApiClient();
+
+/* ============================================================================
+   Response helpers — DRF pagination comes in two common shapes.
+   ========================================================================== */
+
+/**
+ * Normalize a list response to {results, count, next, previous}.
+ * Accepts DRF PageNumberPagination, LimitOffsetPagination, or a bare array.
+ */
+export function normalizeList(data) {
+  if (Array.isArray(data)) {
+    return { results: data, count: data.length, next: null, previous: null };
   }
-  try {
-    const { data } = await rawRequest(method, path, options);
-    return data;
-  } catch (err) {
-    const retriable = options.auth && err instanceof ApiError && err.status === 401 && options._retried !== true;
-    if (retriable && await refreshAccessToken()) {
-      return request(method, path, { ...options, _retried: true });
-    }
-    if (err instanceof ApiError && err.status === 401 && options.auth) {
-      clearTokens();
-      window.dispatchEvent(new CustomEvent('starmond:session-expired'));
-    }
-    throw err;
+  if (data && Array.isArray(data.results)) {
+    return {
+      results: data.results,
+      count: typeof data.count === 'number' ? data.count : data.results.length,
+      next: data.next ?? null,
+      previous: data.previous ?? null,
+    };
   }
+  if (data && Array.isArray(data.items)) {
+    return {
+      results: data.items,
+      count: typeof data.total === 'number' ? data.total : data.items.length,
+      next: data.next ?? null,
+      previous: data.previous ?? null,
+    };
+  }
+  return { results: [], count: 0, next: null, previous: null };
 }
 
-export const http = {
-  get: (path, opts) => request('GET', path, opts),
-  post: (path, body, opts = {}) => request('POST', path, { ...opts, body }),
-  patch: (path, body, opts = {}) => request('PATCH', path, { ...opts, body }),
-  put: (path, body, opts = {}) => request('PUT', path, { ...opts, body }),
-  delete: (path, opts) => request('DELETE', path, opts),
-  upload: (path, formData, opts = {}) => request('POST', path, { ...opts, body: formData, form: true })
-};
+/** Turn an ApiError into a {field: message} map for form rendering. */
+export function fieldErrorMap(error) {
+  if (!(error instanceof ApiError) || !error.fieldErrors) return {};
+  return Object.fromEntries(
+    Object.entries(error.fieldErrors).map(([key, value]) => [key, Array.isArray(value) ? value[0] : String(value)]),
+  );
+}
 
-/* --------------------------------------------------------------- resources */
-export const catalog = {
-  async categories() {
-    const data = await http.get('/catalog/categories/');
-    return toPage(data).items;
-  },
-  async products(query = {}) {
-    const data = await http.get('/catalog/products/', { params: query });
-    return toPage(data, Number(query.page) || 1);
-  },
-  product(slug, opts) { return http.get(`/catalog/products/${encodeURIComponent(slug)}/`, opts); },
-  related(slug) { return http.get(`/catalog/products/${encodeURIComponent(slug)}/related/`); },
-  async reviews(slug, query = {}) {
-    const data = await http.get(`/catalog/products/${encodeURIComponent(slug)}/reviews/`, { params: query });
-    return toPage(data);
-  },
-  createReview(slug, payload) { return http.post(`/catalog/products/${encodeURIComponent(slug)}/reviews/`, payload, { auth: true }); },
-  suggestions(term, signal) { return http.get('/catalog/search/suggest/', { params: { q: term }, signal }); },
-  facets(query = {}) { return http.get('/catalog/facets/', { params: query }); }
-};
-
-export const cart = {
-  get(opts) { return http.get('/cart/', opts); },
-  add({ product_id, variant_id = null, quantity = 1 }) {
-    return http.post('/cart/items/', { product_id, variant_id, quantity });
-  },
-  update(itemId, quantity) { return http.patch(`/cart/items/${itemId}/`, { quantity }); },
-  remove(itemId) { return http.delete(`/cart/items/${itemId}/`); },
-  clear() { return http.delete('/cart/'); },
-  merge() { return http.post('/cart/merge/', {}, { auth: true }); }
-};
-
-export const wishlist = {
-  async list() {
-    const data = await http.get('/wishlist/', { auth: true });
-    return toPage(data).items;
-  },
-  add(product_id) { return http.post('/wishlist/', { product_id }, { auth: true }); },
-  remove(itemId) { return http.delete(`/wishlist/${itemId}/`, { auth: true }); },
-  merge(productIds) { return http.post('/wishlist/merge/', { product_ids: productIds }, { auth: true }); }
-};
-
-export const checkout = {
-  shippingMethods(state) { return http.get('/checkout/shipping-methods/', { params: { state } }); },
-  buyNow({ product_id, variant_id = null, quantity = 1 }) {
-    return http.post('/checkout/buy-now/', { product_id, variant_id, quantity });
-  },
-  createSession(payload) { return http.post('/checkout/session/', payload); },
-  applyCoupon(payload) { return http.post('/checkout/coupon/', payload); }
-};
-
-export const payments = {
-  initialize({ order_id }) { return http.post('/payments/initialize/', { order_id }); },
-  verify(reference) { return http.get('/payments/verify/', { params: { reference } }); }
-};
-
-export const orders = {
-  async list(query = {}) {
-    const data = await http.get('/orders/', { params: query, auth: true });
-    return toPage(data, Number(query.page) || 1);
-  },
-  get(orderNumber) { return http.get(`/orders/${encodeURIComponent(orderNumber)}/`, { auth: true }); },
-  cancel(orderNumber, reason = '') { return http.post(`/orders/${encodeURIComponent(orderNumber)}/cancel/`, { reason }, { auth: true }); },
-  track({ order_number, email }) {
-    return http.get('/orders/track/', { params: { order_number, email } });
-  }
-};
-
-export const auth = {
-  login(payload) { return http.post('/auth/login/', payload); },
-  register(payload) { return http.post('/auth/register/', payload); },
-  logout() { return http.post('/auth/logout/', { refresh: getRefreshToken() }, { auth: true }).catch(() => null); },
-  me() { return http.get('/auth/me/', { auth: true }); },
-  requestPasswordReset(email) { return http.post('/auth/password/reset/', { email }); },
-  confirmPasswordReset(payload) { return http.post('/auth/password/reset/confirm/', payload); },
-  changePassword(payload) { return http.post('/auth/password/change/', payload, { auth: true }); }
-};
-
-export const account = {
-  updateProfile(payload) { return http.patch('/account/profile/', payload, { auth: true }); },
-  addresses() { return http.get('/account/addresses/', { auth: true }); },
-  createAddress(payload) { return http.post('/account/addresses/', payload, { auth: true }); },
-  updateAddress(id, payload) { return http.patch(`/account/addresses/${id}/`, payload, { auth: true }); },
-  deleteAddress(id) { return http.delete(`/account/addresses/${id}/`, { auth: true }); },
-  notifications() { return http.get('/account/notifications/', { auth: true }); },
-  readNotification(id) { return http.post(`/account/notifications/${id}/read/`, {}, { auth: true }); },
-  readAllNotifications() { return http.post('/account/notifications/read-all/', {}, { auth: true }); },
-  preferences() { return http.get('/account/notifications/preferences/', { auth: true }); },
-  updatePreferences(payload) { return http.patch('/account/notifications/preferences/', payload, { auth: true }); }
-};
-
-export const support = {
-  sendMessage(payload) { return http.post('/support/messages/', payload); }
-};
-
-/* ------------------------------------------------------------- admin API */
-const admin = {
-  request: (method, path, body, opts = {}) => http[method](`/admin${path}`, body, { auth: true, ...opts }),
-  dashboard() { return http.get('/admin/dashboard/summary/', { auth: true }); },
-  list(resource, query = {}) {
-    return http.get(`/admin/${resource}/`, { params: query, auth: true }).then((d) => toPage(d, Number(query.page) || 1));
-  },
-  get(resource, id) { return http.get(`/admin/${resource}/${id}/`, { auth: true }); },
-  create(resource, body) { return http.post(`/admin/${resource}/`, body, { auth: true }); },
-  update(resource, id, body) { return http.patch(`/admin/${resource}/${id}/`, body, { auth: true }); },
-  remove(resource, id) { return http.delete(`/admin/${resource}/${id}/`, { auth: true }); },
-  action(resource, id, action, body = {}) {
-    return http.post(`/admin/${resource}/${id}/${action}/`, body, { auth: true });
-  },
-  upload(resource, id, formData) {
-    const path = id ? `/admin/${resource}/${id}/` : `/admin/${resource}/`;
-    return http.upload(path, formData, { auth: true });
-  },
-  reports(query = {}) { return http.get('/admin/reports/overview/', { params: query, auth: true }); },
-  inventory(query = {}) { return http.get('/admin/inventory/', { params: query, auth: true }).then((d) => toPage(d, 1)); },
-  adjustStock(id, payload) { return http.post(`/admin/inventory/${id}/adjust/`, payload, { auth: true }); },
-  refunds(query = {}) { return http.get('/admin/refunds/', { params: query, auth: true }).then((d) => toPage(d, 1)); },
-  settings() { return http.get('/admin/settings/', { auth: true }); },
-  updateSettings(body) { return http.patch('/admin/settings/', body, { auth: true }); },
-  seo() { return http.get('/admin/seo/', { auth: true }); },
-  updateSeo(body) { return http.patch('/admin/seo/', body, { auth: true }); },
-  staff() { return http.get('/admin/staff/', { auth: true }).then((d) => toPage(d, 1)); },
-  customer(id) { return http.get(`/admin/customers/${id}/`, { auth: true }); },
-  orderStatus(id, status, note = '') {
-    return http.post(`/admin/orders/${id}/status/`, { status, note }, { auth: true });
-  },
-  verifyPayment(id) { return http.post(`/admin/payments/${id}/verify/`, {}, { auth: true }); },
-  createRefund(body) { return http.post('/admin/refunds/', body, { auth: true }); },
-  sendNotification(body) { return http.post('/admin/notifications/', body, { auth: true }); },
-  inviteStaff(body) { return http.post('/admin/staff/', body, { auth: true }); },
-  content(query = {}) { return http.get('/admin/content/', { params: query, auth: true }).then((d) => toPage(d, 1)); },
-  updateContent(id, body) { return http.patch(`/admin/content/${id}/`, body, { auth: true }); }
-};
-
-export { admin };
-export default { http, catalog, cart, wishlist, checkout, payments, orders, auth, account, support, admin, ApiError };
+export default api;

@@ -1,361 +1,305 @@
 <!DOCTYPE html>
-<html lang="en-NG" data-root="" data-page="account">
+<html lang="en-NG">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Your Account | STARMOND TECHNOLOGY LIMITED</title>
-<meta name="description" content="Manage your profile, delivery addresses, orders and notification preferences.">
-<link rel="canonical" href="https://www.starmondtechnology.com/account.html">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>My account — STARMOND TECHNOLOGY LIMITED</title>
+<meta name="description" content="Manage your profile, addresses and preferences.">
+<link rel="canonical" href="/account.html">
 <meta name="robots" content="noindex, nofollow">
-<meta name="theme-color" content="#5a21d6">
+<meta name="theme-color" content="#6335A8">
 <meta name="format-detection" content="telephone=no">
-<meta property="og:site_name" content="STARMOND TECHNOLOGY LIMITED">
+<meta name="author" content="STARMOND TECHNOLOGY LIMITED">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Your Account | STARMOND TECHNOLOGY LIMITED">
-<meta property="og:description" content="Manage your profile, delivery addresses, orders and notification preferences.">
-<meta property="og:url" content="https://www.starmondtechnology.com/account.html">
-<meta property="og:image" content="https://www.starmondtechnology.com/assets/img/og-default.png">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
+<meta property="og:site_name" content="STARMOND TECHNOLOGY LIMITED">
+<meta property="og:title" content="My account — STARMOND TECHNOLOGY LIMITED">
+<meta property="og:description" content="Manage your profile, addresses and preferences.">
+<meta property="og:url" content="/account.html">
 <meta property="og:locale" content="en_NG">
-<meta name="twitter:card" content="summary_large_image">
-<link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="assets/img/icon-192.png">
-<link rel="manifest" href="manifest.webmanifest">
-<link rel="stylesheet" href="assets/css/main.css">
 
-<script src="assets/js/config.js"></script>
-<script src="assets/js/boot.js"></script>
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="My account — STARMOND TECHNOLOGY LIMITED">
+<meta name="twitter:description" content="Manage your profile, addresses and preferences.">
+
+<link rel="icon" href="/assets/icons/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/icons/icon-192.png">
+<link rel="manifest" href="/manifest.webmanifest">
+
+<link rel="stylesheet" href="/assets/css/variables.css">
+<link rel="stylesheet" href="/assets/css/typography.css">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="stylesheet" href="/assets/css/components.css">
+<link rel="stylesheet" href="/assets/css/skeletons.css">
+<link rel="stylesheet" href="/assets/css/pages/storefront.css">
+<link rel="stylesheet" href="/assets/css/responsive.css">
+<script src="/assets/js/config.js"></script>
+
+<script type="module" src="/assets/js/pages/account-page.js"></script>
 </head>
-<body class="" data-page="account">
-<svg xmlns="http://www.w3.org/2000/svg" class="sprite" aria-hidden="true" focusable="false">
-<symbol id="i-menu" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></symbol>
-<symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
-<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></symbol>
-<symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5S20 17 20 21"/></symbol>
-<symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7-4.35-7-9.5A4.5 4.5 0 0 1 12 7a4.5 4.5 0 0 1 7 3.5C19 15.65 12 20 12 20z"/></symbol>
-<symbol id="i-cart" viewBox="0 0 24 24"><path d="M3 5h2l2.4 10.2a2 2 0 0 0 2 1.6h7.2a2 2 0 0 0 2-1.55L20.5 8H6"/><circle cx="10" cy="20" r="1.4"/><circle cx="17.5" cy="20" r="1.4"/></symbol>
-<symbol id="i-chevron" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
-<symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
-<symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.2 1 5.9-5.2-2.9-5.2 2.9 1-5.9L3.5 9.7l5.9-.8z"/></symbol>
-<symbol id="i-check" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5"/></symbol>
-<symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l.8 12.5h9.4L17.5 7"/></symbol>
-<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
-<symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
-<symbol id="i-truck" viewBox="0 0 24 24"><path d="M3 7h10v9H3zM13 10h4l3 3v3h-7z"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/></symbol>
-<symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.4-3 7.6-7 9-4-1.4-7-4.6-7-9V6z"/><path d="M9 12l2 2 4-4"/></symbol>
-<symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></symbol>
-<symbol id="i-laptop" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="10.5" rx="1.5"/><path d="M2.5 19h19"/></symbol>
-<symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2.2"/><path d="M10.5 19h3"/></symbol>
-<symbol id="i-headphones" viewBox="0 0 24 24"><path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="14" width="4" height="6" rx="1.6"/><rect x="17" y="14" width="4" height="6" rx="1.6"/></symbol>
-<symbol id="i-watch" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="3"/><path d="M9.5 7V3.5h5V7M9.5 17v3.5h5V17"/></symbol>
-<symbol id="i-battery" viewBox="0 0 24 24"><rect x="2.5" y="8" width="16" height="8" rx="2"/><path d="M21 11v2"/><path d="M10.5 9.5L8 12.5h3l-1.5 2.5"/></symbol>
-<symbol id="i-cable" viewBox="0 0 24 24"><path d="M6 3v5a3 3 0 0 0 3 3h1a3 3 0 0 1 3 3v1a3 3 0 0 0 3 3h2"/><path d="M4 3h4M16 18h4"/></symbol>
-<symbol id="i-wifi" viewBox="0 0 24 24"><path d="M3 9a15 15 0 0 1 18 0M6.5 12.5a10 10 0 0 1 11 0M10 16a5 5 0 0 1 4 0"/><circle cx="12" cy="19.5" r="1"/></symbol>
-<symbol id="i-package" viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/></symbol>
-<symbol id="i-card" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 10h19"/></symbol>
-<symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></symbol>
-<symbol id="i-grid" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></symbol>
-<symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
-<symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2.5h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></symbol>
-<symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6"/></symbol>
-<symbol id="i-logout" viewBox="0 0 24 24"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4"/><path d="M10 8l-4 4 4 4M6 12h9"/></symbol>
-<symbol id="i-tag" viewBox="0 0 24 24"><path d="M3 3h7l11 11-7 7L3 10z"/><circle cx="7.5" cy="7.5" r="1.2"/></symbol>
-<symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v4.5h-4.5"/></symbol>
-</svg>
-<a class="skip-link" href="#main">Skip to main content</a>
-<div class="demo-banner" data-demo-banner hidden>
-  <div class="container demo-banner__inner">
-    <strong>Demo mode.</strong>
-    <span>No backend is connected, so this build is showing clearly-labelled sample data for layout review only. It is not real stock, pricing or business information.<span class="demo-banner__dev"> Set <code>API_BASE_URL</code> in <code>assets/js/config.js</code> to run against the live API.</span></span>
+<body>
+<a class="sr-only sr-only-focusable skip-link" href="#main">Skip to main content</a>
+<div class="announce">
+  <div class="container announce__inner">
+    <span class="announce__item"><i data-icon="truck" data-size="sm"></i> Nationwide delivery across Nigeria</span>
+    <span class="announce__item announce__item--secondary announce__item--muted"><i data-icon="shield" data-size="sm"></i> Secure checkout with Paystack</span>
+    <span class="announce__item announce__item--secondary"><a href="/contact.html">Need help? Contact us</a></span>
   </div>
 </div>
-<header class="site-header" data-site-header>
-<div class="topbar">
-  <div class="container topbar__inner">
-    <p class="topbar__note"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-truck"></use></svg> Nationwide delivery across Nigeria &middot; Genuine products with warranty</p>
-    <ul class="topbar__links">
-      <li><a href="track-order.html">Track order</a></li>
-      <li><a href="contact.html">Support</a></li>
-      <li><a href="admin/index.html" data-staff-only hidden>Admin</a></li>
-    </ul>
-  </div>
-</div>
-<div class="header-main">
-  <div class="container header-main__inner">
-    <button class="icon-btn nav-toggle" type="button" aria-expanded="false" aria-controls="primary-nav" data-nav-toggle>
-      <svg class="icon" aria-hidden="true"><use href="#i-menu"></use></svg><span class="sr-only">Menu</span>
+
+<header class="site-header">
+  <div class="container site-header__inner">
+    <button type="button" class="icon-btn only-mobile" data-menu-trigger aria-label="Open navigation menu" aria-controls="mobile-drawer">
+      <i data-icon="menu"></i>
     </button>
-    <a class="brand" href="index.html"><span class="brand__mark" aria-hidden="true">S</span><span class="brand__text"><span class="brand__name">STARMOND</span><span class="brand__sub">TECHNOLOGY LIMITED</span></span></a>
-    <form class="search-form" role="search" action="shop.html" method="get" data-search-form>
-      <label class="sr-only" for="site-search">Search products</label>
-      <input class="search-form__input" id="site-search" name="q" type="search" placeholder="Search laptops, phones, accessories…" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="search-suggest" aria-autocomplete="list" data-search-input>
-      <button class="search-form__submit" type="submit">
-        <svg class="icon" aria-hidden="true"><use href="#i-search"></use></svg><span class="sr-only">Search</span>
-      </button>
-      <div class="suggest" id="search-suggest" role="listbox" aria-label="Search suggestions" data-search-suggest hidden></div>
-    </form>
+
+    <a class="brand" href="/" aria-label="STARMOND TECHNOLOGY LIMITED — home">
+      <svg class="brand__mark" viewBox="0 0 40 40" role="img" aria-label="Starmond Technology Limited">
+  <rect width="40" height="40" rx="9" fill="#6335A8"/>
+  <path d="M20 8.5l2.9 6.35 6.95.72-5.2 4.66 1.45 6.84L20 23.6l-6.1 3.47 1.45-6.84-5.2-4.66 6.95-.72z" fill="#fff"/>
+  <circle cx="30.5" cy="10.5" r="2.1" fill="#CBB2F0"/>
+</svg>
+      <span class="brand__text">
+        <span class="brand__name">Starmond</span>
+        <span class="brand__tag">Technology Limited</span>
+      </span>
+    </a>
+
+    <nav class="main-nav" aria-label="Main navigation">
+      <a class="main-nav__link" href="/shop.html">Shop</a>
+      <span data-mega-wrapper>
+        <button type="button" class="main-nav__link" data-mega-trigger aria-expanded="false" aria-controls="mega-panel">
+          Categories <i data-icon="chevron-down" data-size="sm"></i>
+        </button>
+      </span>
+      <a class="main-nav__link" href="/shop.html?sort=newest">New arrivals</a>
+      <a class="main-nav__link" href="/shop.html?featured=1">Featured</a>
+      <a class="main-nav__link" href="/about.html">About</a>
+      <a class="main-nav__link" href="/contact.html">Contact</a>
+    </nav>
+
+    <div class="header-search" data-header-search>
+      <form class="header-search__form" action="/search.html" method="get" role="search">
+        <span class="header-search__icon"><i data-icon="search" data-size="sm"></i></span>
+        <label class="sr-only" for="header-search-input">Search products</label>
+        <input class="header-search__input" id="header-search-input" type="search" name="q"
+               placeholder="Search products, brands and categories" autocomplete="off">
+        <button class="header-search__submit" type="submit" aria-label="Submit search"><i data-icon="arrow-right" data-size="sm"></i></button>
+      </form>
+      <div class="search-panel" data-search-panel hidden></div>
+    </div>
+
     <div class="header-actions">
-      <a class="icon-btn header-actions__account" href="account.html" data-auth-href>
-        <svg class="icon" aria-hidden="true"><use href="#i-user"></use></svg>
-        <span class="icon-btn__label" data-auth-label>Sign in</span>
-      </a>
-      <a class="icon-btn header-actions__wish" href="wishlist.html">
-        <svg class="icon" aria-hidden="true"><use href="#i-heart"></use></svg>
-        <span class="sr-only">Wishlist</span>
-        <span class="count-badge" data-wishlist-count hidden>0</span>
-      </a>
-      <a class="icon-btn header-actions__cart" href="cart.html">
-        <svg class="icon" aria-hidden="true"><use href="#i-cart"></use></svg>
-        <span class="sr-only">Shopping cart, </span><span class="count-badge" data-cart-count hidden>0</span>
+      <a class="icon-btn only-mobile" href="/search.html" aria-label="Search products"><i data-icon="search"></i></a>
+      <span class="header-actions__wrap">
+        <button type="button" class="icon-btn" data-account-trigger aria-expanded="false" aria-controls="account-menu" aria-label="Sign in or create an account">
+          <i data-icon="user"></i>
+        </button>
+        <div class="menu" id="account-menu" data-account-menu hidden></div>
+      </span>
+      <a class="icon-btn" href="/cart.html" data-cart-link aria-label="Cart">
+        <i data-icon="cart"></i>
+        <span class="icon-btn__count" data-cart-count hidden>0</span>
       </a>
     </div>
   </div>
-</div>
-<nav class="nav" id="primary-nav" aria-label="Primary">
-  <div class="container nav__inner">
-    <ul class="nav__list">
-      <li><a class="nav__link" href="index.html">Home</a></li>
-      <li><a class="nav__link" href="category/laptops-computing/" title="Laptops &amp; Computing" aria-label="Laptops &amp; Computing">Laptops</a></li>
-      <li><a class="nav__link" href="category/phones-tablets/" title="Phones &amp; Tablets" aria-label="Phones &amp; Tablets">Phones</a></li>
-      <li><a class="nav__link" href="category/audio-headphones/" title="Audio &amp; Headphones" aria-label="Audio &amp; Headphones">Audio</a></li>
-      <li><a class="nav__link" href="category/wearables-smart-devices/" title="Wearables &amp; Smart Devices" aria-label="Wearables &amp; Smart Devices">Wearables</a></li>
-      <li><a class="nav__link" href="category/power-charging/" title="Power &amp; Charging" aria-label="Power &amp; Charging">Power</a></li>
-      <li><a class="nav__link" href="category/accessories-cables/" title="Accessories &amp; Cables" aria-label="Accessories &amp; Cables">Accessories</a></li>
-      <li><a class="nav__link" href="category/networking-smart-home/" title="Networking &amp; Smart Home" aria-label="Networking &amp; Smart Home">Networking</a></li>
-      <li><a class="nav__link" href="shop.html">All products</a></li>
-      <li><a class="nav__link" href="deals.html">Deals</a></li>
-      <li><a class="nav__link" href="about.html">About</a></li>
-      <li><a class="nav__link" href="faq.html">FAQs</a></li>
-      <li><a class="nav__link" href="contact.html">Contact</a></li>
-    </ul>
-    <a class="nav__account-link" href="account.html" data-staff-only hidden>Admin dashboard</a>
+
+  <div class="mega" id="mega-panel" data-mega-panel hidden>
+    <div class="container" data-mega-content></div>
   </div>
-</nav>
 </header>
-<main id="main" tabindex="-1">
+
+<div class="drawer-backdrop" data-drawer-backdrop></div>
+<aside class="drawer" id="mobile-drawer" data-mobile-drawer aria-label="Mobile navigation">
+  <div class="drawer__head">
+    <span class="drawer__title">Menu</span>
+    <button type="button" class="icon-btn" data-drawer-close aria-label="Close navigation menu"><i data-icon="x"></i></button>
+  </div>
+  <div class="drawer__body">
+    <nav class="drawer-nav" aria-label="Mobile main navigation">
+      <a class="drawer-nav__link" href="/">Home</a>
+      <a class="drawer-nav__link" href="/shop.html">Shop all products</a>
+      <a class="drawer-nav__link" href="/shop.html?sort=newest">New arrivals</a>
+      <a class="drawer-nav__link" href="/shop.html?featured=1">Featured products</a>
+      <div class="drawer-nav__group">
+        <p class="admin-nav__label" style="color:var(--color-muted)">Categories</p>
+        <div data-drawer-categories>
+          <div class="stack stack--sm" style="padding:var(--space-3)" aria-hidden="true">
+            <span class="sk sk--text sk--w-70"></span><span class="sk sk--text sk--w-50"></span><span class="sk sk--text sk--w-60"></span>
+          </div>
+        </div>
+      </div>
+      <div class="drawer-nav__group">
+        <a class="drawer-nav__link" href="/about.html">About us</a>
+        <a class="drawer-nav__link" href="/contact.html">Contact us</a>
+        <a class="drawer-nav__link" href="/faq.html">FAQs</a>
+        <a class="drawer-nav__link" href="/track-order.html">Track an order</a>
+      </div>
+      <div class="drawer-nav__group">
+        <a class="drawer-nav__link" href="/account.html" data-auth-user hidden>My account</a>
+        <a class="drawer-nav__link" href="/orders.html" data-auth-user hidden>My orders</a>
+        <a class="drawer-nav__link" href="/wishlist.html" data-auth-user hidden>Wishlist</a>
+        <a class="drawer-nav__link" href="/login.html" data-auth-guest>Sign in</a>
+        <a class="drawer-nav__link" href="/register.html" data-auth-guest>Create account</a>
+      </div>
+    </nav>
+  </div>
+</aside>
+<main id="main">
+
 <div class="container">
-  <nav class="crumbs" aria-label="Breadcrumb"><ol><li><a href="index.html">Home</a></li><li aria-current="page">Your account</li></ol></nav>
-</div>
+  <div class="page-head">
+    <h1 class="page-head__title">My account</h1>
+    <p class="page-head__sub" data-account-greeting>Manage your profile, addresses, orders and preferences.</p>
+  </div>
+  <div class="account-layout">
+    
+<nav class="account-nav" aria-label="Account sections">
+  <a class="account-nav__link" href="/account.html" aria-current="page"><i data-icon="user" data-size="sm"></i>Overview</a><a class="account-nav__link" href="/orders.html"><i data-icon="package" data-size="sm"></i>Orders</a><a class="account-nav__link" href="/account.html#addresses"><i data-icon="map-pin" data-size="sm"></i>Addresses</a><a class="account-nav__link" href="/wishlist.html"><i data-icon="heart" data-size="sm"></i>Wishlist</a><a class="account-nav__link" href="/account.html#reviews"><i data-icon="star" data-size="sm"></i>My reviews</a><a class="account-nav__link" href="/account.html#payments"><i data-icon="credit-card" data-size="sm"></i>Payments</a><a class="account-nav__link" href="/account.html#settings"><i data-icon="settings" data-size="sm"></i>Settings</a>
+  <button type="button" class="account-nav__link" data-logout-page><i data-icon="log-out" data-size="sm"></i>Sign out</button>
+</nav>
+    <div class="account-main">
+      <section class="account-section" id="overview" aria-labelledby="overview-title">
+        <h2 class="t-lg t-semibold" id="overview-title">Overview</h2>
+        <div class="admin-stats admin-stats--3" data-account-stats data-loading-region aria-busy="true">
+          <div class="sk-stat" aria-hidden="true"><div class="sk-stat__head"><span class="sk sk--text-sm sk--w-50" aria-hidden="true"></span><span class="sk sk--icon" aria-hidden="true"></span></div><span class="sk sk--title sk--w-60" aria-hidden="true"></span></div><div class="sk-stat" aria-hidden="true"><div class="sk-stat__head"><span class="sk sk--text-sm sk--w-50" aria-hidden="true"></span><span class="sk sk--icon" aria-hidden="true"></span></div><span class="sk sk--title sk--w-60" aria-hidden="true"></span></div><div class="sk-stat" aria-hidden="true"><div class="sk-stat__head"><span class="sk sk--text-sm sk--w-50" aria-hidden="true"></span><span class="sk sk--icon" aria-hidden="true"></span></div><span class="sk sk--title sk--w-60" aria-hidden="true"></span></div>
+        </div>
+      </section>
 
-<section class="section section--tight" aria-labelledby="acct-title">
-  <div class="container">
-    <div class="page-head page-head--row">
-      <div>
-        <p class="eyebrow">Account</p>
-        <h1 class="h1" id="acct-title" data-account-title>Your account</h1>
-        <p class="page-head__lede" data-account-sub>Manage your details, orders and delivery addresses.</p>
-      </div>
-      <div class="order-actions">
-        <a class="btn btn--ghost" href="track-order.html">Track an order</a>
-        <a class="btn btn--outline" href="shop.html">Continue shopping</a>
-      </div>
-    </div>
-
-    <div class="alert alert--info" data-account-guest hidden role="note">
-      <svg class="icon icon--sm" aria-hidden="true"><use href="#i-user"></use></svg>
-      <p>You are browsing as a guest. <a href="login.html?next=account">Sign in</a> to see your orders, addresses and notification history. You can still check out as a guest.</p>
-    </div>
-
-    <div class="account-layout" data-account-layout hidden>
-      <div class="account-tabs" role="tablist" aria-label="Account sections" data-account-tabs>
-        <button class="account-tab" role="tab" id="tab-overview" aria-controls="panel-overview" aria-selected="true" type="button">Overview</button>
-        <button class="account-tab" role="tab" id="tab-orders" aria-controls="panel-orders" aria-selected="false" tabindex="-1" type="button">Orders</button>
-        <button class="account-tab" role="tab" id="tab-addresses" aria-controls="panel-addresses" aria-selected="false" tabindex="-1" type="button">Addresses</button>
-        <button class="account-tab" role="tab" id="tab-profile" aria-controls="panel-profile" aria-selected="false" tabindex="-1" type="button">Profile</button>
-        <button class="account-tab" role="tab" id="tab-notifications" aria-controls="panel-notifications" aria-selected="false" tabindex="-1" type="button">Notifications</button>
-        <button class="account-tab" role="tab" id="tab-security" aria-controls="panel-security" aria-selected="false" tabindex="-1" type="button">Security</button>
-      </div>
-
-      <div class="account-panels">
-        <section class="account-panel" role="tabpanel" id="panel-overview" aria-labelledby="tab-overview" tabindex="0">
-          <div class="stat-grid stat-grid--sm">
-            <div class="stat-card"><p class="stat-card__label">Orders placed</p><p class="stat-card__value" data-stat-orders>&mdash;</p></div>
-            <div class="stat-card"><p class="stat-card__label">Open orders</p><p class="stat-card__value" data-stat-open>&mdash;</p></div>
-            <div class="stat-card"><p class="stat-card__label">Saved items</p><p class="stat-card__value" data-stat-wishlist>&mdash;</p></div>
+      <section class="account-section" id="profile" aria-labelledby="profile-title">
+        <div class="card">
+          <div class="card__head"><h2 class="card__title" id="profile-title">Profile</h2></div>
+          <div class="card__body">
+            <form class="stack" data-profile-form novalidate>
+              <div class="alert alert--danger" data-form-error hidden role="alert"></div>
+              <div class="form-grid">
+                <div class="field"><label class="field__label" for="acc-first">First name</label><input class="input" id="acc-first" name="first_name" autocomplete="given-name"><p class="field__error" data-error-for="first_name"></p></div>
+                <div class="field"><label class="field__label" for="acc-last">Last name</label><input class="input" id="acc-last" name="last_name" autocomplete="family-name"><p class="field__error" data-error-for="last_name"></p></div>
+                <div class="field"><label class="field__label" for="acc-email">Email address</label><input class="input" id="acc-email" name="email" type="email" autocomplete="email"><p class="field__error" data-error-for="email"></p></div>
+                <div class="field"><label class="field__label" for="acc-phone">Phone number</label><input class="input" id="acc-phone" name="phone" type="tel" autocomplete="tel"><p class="field__error" data-error-for="phone"></p></div>
+              </div>
+              <div><button class="btn btn--primary" type="submit" data-pending-label="Saving">Save changes</button></div>
+            </form>
           </div>
-          <h2 class="h3">Recent orders</h2>
-          <div class="table-wrap">
-            <table class="data-table">
-              <caption class="sr-only">Your three most recent orders</caption>
-              <thead><tr><th scope="col">Order</th><th scope="col">Date</th><th scope="col">Status</th><th scope="col">Total</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
-              <tbody data-recent-orders><tr><td colspan="5" class="muted">Loading&hellip;</td></tr></tbody>
-            </table>
-          </div>
-        </section>
+        </div>
+      </section>
 
-        <section class="account-panel" role="tabpanel" id="panel-orders" aria-labelledby="tab-orders" tabindex="0" hidden>
-          <div class="panel-head">
-            <h2 class="h3">Order history</h2>
-            <label class="sort-field" for="orders-status-filter"><span>Status</span>
-              <select id="orders-status-filter" class="input" data-orders-filter>
-                <option value="">All orders</option>
-                <option value="pending_payment">Awaiting payment</option>
-                <option value="paid">Paid</option>
-                <option value="processing">Processing</option>
-                <option value="shipped">Shipped</option>
-                <option value="delivered">Delivered</option>
-                <option value="cancelled">Cancelled</option>
-                <option value="refunded">Refunded</option>
-              </select>
-            </label>
-          </div>
-          <div class="table-wrap">
-            <table class="data-table">
-              <caption class="sr-only">All your orders</caption>
-              <thead><tr><th scope="col">Order</th><th scope="col">Date</th><th scope="col">Items</th><th scope="col">Status</th><th scope="col">Total</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
-              <tbody data-orders-body><tr><td colspan="6" class="muted">Loading&hellip;</td></tr></tbody>
-            </table>
-          </div>
-          <nav class="pager" aria-label="Order history pages" data-orders-pager hidden></nav>
-        </section>
+      <section class="account-section" id="addresses" aria-labelledby="addresses-title">
+        <div class="cluster cluster--between">
+          <h2 class="t-lg t-semibold" id="addresses-title">Saved addresses</h2>
+          <button type="button" class="btn btn--secondary btn--sm" data-address-add><i data-icon="plus" data-size="sm"></i> Add address</button>
+        </div>
+        <div data-addresses data-loading-region aria-busy="true">
+          <div class="address-grid" aria-hidden="true"><div class="address-card"><span class="sk sk--text sk--w-40" aria-hidden="true"></span><span class="sk sk--text sk--w-90" aria-hidden="true"></span><span class="sk sk--text sk--w-70" aria-hidden="true"></span><span class="sk sk--text sk--w-50" aria-hidden="true"></span></div><div class="address-card"><span class="sk sk--text sk--w-40" aria-hidden="true"></span><span class="sk sk--text sk--w-90" aria-hidden="true"></span><span class="sk sk--text sk--w-70" aria-hidden="true"></span><span class="sk sk--text sk--w-50" aria-hidden="true"></span></div></div>
+        </div>
+      </section>
 
-        <section class="account-panel" role="tabpanel" id="panel-addresses" aria-labelledby="tab-addresses" tabindex="0" hidden>
-          <div class="panel-head">
-            <h2 class="h3">Delivery addresses</h2>
-            <button class="btn btn--outline" type="button" data-address-new>Add address</button>
-          </div>
-          <div class="address-list" data-address-list aria-busy="true"><p class="muted">Loading addresses&hellip;</p></div>
-          <form class="card card--pad" data-address-form hidden novalidate>
-            <h3 class="h3" data-address-form-title>New address</h3>
-            <input type="hidden" name="id">
-            <div class="form-grid">
-              <div class="field"><label for="ad-label">Label</label><input class="input" id="ad-label" name="label" type="text" placeholder="Home, Office" maxlength="40"></div>
-              <div class="field"><label for="ad-recipient">Recipient name <span class="req" aria-hidden="true">*</span></label><input class="input" id="ad-recipient" name="recipient_name" type="text" required></div>
-              <div class="field field--full"><label for="ad-phone">Phone <span class="req" aria-hidden="true">*</span></label><input class="input" id="ad-phone" name="phone" type="tel" required></div>
-              <div class="field field--full"><label for="ad-line1">Street address <span class="req" aria-hidden="true">*</span></label><input class="input" id="ad-line1" name="line1" type="text" required></div>
-              <div class="field field--full"><label for="ad-line2">Apartment, building, landmark</label><input class="input" id="ad-line2" name="line2" type="text"></div>
-              <div class="field"><label for="ad-city">City <span class="req" aria-hidden="true">*</span></label><input class="input" id="ad-city" name="city" type="text" required></div>
-              <div class="field"><label for="ad-state">State <span class="req" aria-hidden="true">*</span></label><select class="input" id="ad-state" name="state" required data-state-select><option value="">Select a state</option></select></div>
-            </div>
-            <label class="check"><input type="checkbox" name="is_default"><span>Use as my default delivery address</span></label>
-            <p class="form-error" data-address-error role="alert" hidden></p>
-            <div class="form-actions">
-              <button class="btn btn--primary" type="submit">Save address</button>
-              <button class="btn btn--ghost" type="button" data-address-cancel>Cancel</button>
-            </div>
-          </form>
-        </section>
+      <section class="account-section" id="payments" aria-labelledby="payments-title">
+        <h2 class="t-lg t-semibold" id="payments-title">Payment history</h2>
+        <div class="card card__body--flush"><div data-account-payments data-loading-region aria-busy="true"><div class="sk-table" aria-hidden="true"><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div></div></div></div>
+      </section>
 
-        <section class="account-panel" role="tabpanel" id="panel-profile" aria-labelledby="tab-profile" tabindex="0" hidden>
-          <h2 class="h3">Your details</h2>
-          <form class="card card--pad" data-profile-form novalidate>
-            <div class="form-grid">
-              <div class="field"><label for="pf-first">First name</label><input class="input" id="pf-first" name="first_name" type="text" autocomplete="given-name"></div>
-              <div class="field"><label for="pf-last">Last name</label><input class="input" id="pf-last" name="last_name" type="text" autocomplete="family-name"></div>
-              <div class="field"><label for="pf-email">Email address</label><input class="input" id="pf-email" name="email" type="email" autocomplete="email" readonly aria-describedby="pf-email-note"></div>
-              <div class="field"><label for="pf-phone">Phone number</label><input class="input" id="pf-phone" name="phone" type="tel" autocomplete="tel"></div>
-            </div>
-            <p class="small muted" id="pf-email-note">Contact support to change the email address on your account.</p>
-            <p class="form-error" data-profile-error role="alert" hidden></p>
-            <p class="form-success" data-profile-success role="status" hidden></p>
-            <button class="btn btn--primary" type="submit">Save changes</button>
-          </form>
-        </section>
+      <section class="account-section" id="reviews" aria-labelledby="my-reviews-title">
+        <h2 class="t-lg t-semibold" id="my-reviews-title">My reviews</h2>
+        <div data-account-reviews data-loading-region aria-busy="true">
+          <div class="sk-list" aria-hidden="true"><div class="sk-list__item"><span class="sk sk--thumb" aria-hidden="true"></span><div class="sk-list__body"><span class="sk sk--text sk--w-60" aria-hidden="true"></span><span class="sk sk--text-sm sk--w-30" aria-hidden="true"></span></div></div><div class="sk-list__item"><span class="sk sk--thumb" aria-hidden="true"></span><div class="sk-list__body"><span class="sk sk--text sk--w-60" aria-hidden="true"></span><span class="sk sk--text-sm sk--w-30" aria-hidden="true"></span></div></div></div>
+        </div>
+      </section>
 
-        <section class="account-panel" role="tabpanel" id="panel-notifications" aria-labelledby="tab-notifications" tabindex="0" hidden>
-          <div class="panel-head">
-            <h2 class="h3">Notifications</h2>
-            <button class="btn btn--ghost" type="button" data-notifications-read-all>Mark all as read</button>
+      <section class="account-section" id="settings" aria-labelledby="settings-title">
+        <div class="card">
+          <div class="card__head"><h2 class="card__title" id="settings-title">Notifications &amp; security</h2></div>
+          <div class="card__body stack stack--lg">
+            <form class="stack" data-preferences-form novalidate>
+              <h3 class="t-sm t-semibold">Email notifications</h3>
+              <label class="switch"><input type="checkbox" name="order_updates"><span class="switch__track"></span><span>Order and delivery updates</span></label>
+              <label class="switch"><input type="checkbox" name="payment_receipts"><span class="switch__track"></span><span>Payment receipts</span></label>
+              <label class="switch"><input type="checkbox" name="marketing_emails"><span class="switch__track"></span><span>Product updates and offers</span></label>
+              <div><button class="btn btn--secondary" type="submit" data-pending-label="Saving">Save preferences</button></div>
+            </form>
+            <hr class="divider">
+            <form class="stack" data-password-form novalidate>
+              <h3 class="t-sm t-semibold">Change password</h3>
+              <div class="alert alert--danger" data-form-error hidden role="alert"></div>
+              <div class="form-grid">
+                <div class="field form-grid__full"><label class="field__label" for="pw-current">Current password</label><input class="input" id="pw-current" name="current_password" type="password" autocomplete="current-password" required><p class="field__error" data-error-for="current_password"></p></div>
+                <div class="field"><label class="field__label" for="pw-new">New password</label><input class="input" id="pw-new" name="new_password" type="password" autocomplete="new-password" minlength="8" required><p class="field__error" data-error-for="new_password"></p></div>
+                <div class="field"><label class="field__label" for="pw-confirm">Confirm new password</label><input class="input" id="pw-confirm" name="new_password_confirm" type="password" autocomplete="new-password" required><p class="field__error" data-error-for="new_password_confirm"></p></div>
+              </div>
+              <div><button class="btn btn--secondary" type="submit" data-pending-label="Updating">Update password</button></div>
+            </form>
           </div>
-          <ul class="notif-list" data-notifications aria-busy="true"><li class="muted">Loading notifications&hellip;</li></ul>
-          <h2 class="h3">Email preferences</h2>
-          <form class="card card--pad" data-prefs-form>
-            <label class="check"><input type="checkbox" name="order_updates" checked><span>Order and delivery updates</span></label>
-            <label class="check"><input type="checkbox" name="promotions"><span>Promotions and new arrivals</span></label>
-            <label class="check"><input type="checkbox" name="price_drops"><span>Wishlist price drop alerts</span></label>
-            <button class="btn btn--primary" type="submit">Update preferences</button>
-            <p class="form-success" data-prefs-success role="status" hidden>Preferences saved.</p>
-          </form>
-        </section>
-
-        <section class="account-panel" role="tabpanel" id="panel-security" aria-labelledby="tab-security" tabindex="0" hidden>
-          <h2 class="h3">Password</h2>
-          <form class="card card--pad" data-password-form novalidate>
-            <div class="form-grid">
-              <div class="field field--full"><label for="pw-current">Current password</label><input class="input" id="pw-current" name="current_password" type="password" autocomplete="current-password" required></div>
-              <div class="field"><label for="pw-new">New password</label><input class="input" id="pw-new" name="new_password" type="password" autocomplete="new-password" minlength="8" required aria-describedby="pw-hint"></div>
-              <div class="field"><label for="pw-confirm">Confirm new password</label><input class="input" id="pw-confirm" name="confirm_password" type="password" autocomplete="new-password" minlength="8" required></div>
-            </div>
-            <p class="small muted" id="pw-hint">At least 8 characters. A mix of letters, numbers and symbols is recommended.</p>
-            <p class="form-error" data-password-error role="alert" hidden></p>
-            <p class="form-success" data-password-success role="status" hidden>Password updated.</p>
-            <button class="btn btn--primary" type="submit">Update password</button>
-          </form>
-          <h2 class="h3">Sessions</h2>
-          <div class="card card--pad">
-            <p class="small muted">Signing out on this device removes your saved session token. Orders and saved items stay attached to your account.</p>
-            <button class="btn btn--danger" type="button" data-logout>Sign out</button>
-          </div>
-        </section>
-      </div>
+        </div>
+      </section>
     </div>
   </div>
-</section>
+</div>
+
 </main>
 <footer class="site-footer">
-  <div class="container footer-grid">
-    <div class="footer-brand">
-      <a class="brand" href="index.html"><span class="brand__mark" aria-hidden="true">S</span><span class="brand__text"><span class="brand__name">STARMOND</span><span class="brand__sub">TECHNOLOGY LIMITED</span></span></a>
-      <p class="footer-brand__text">A Nigerian technology retailer supplying genuine computing, mobile, audio, power and networking products with real support before and after purchase.</p>
-      <p class="footer-brand__contact">
-        <span>Enugu, Enugu State, Nigeria</span>
-        <a href="tel:+2340000000000">+234 000 000 0000</a>
-        <a href="mailto:support@starmondtechnology.com">support@starmondtechnology.com</a>
-      </p>
+  <div class="container">
+    <div class="site-footer__grid">
+      <div class="site-footer__about">
+        <a class="brand" href="/" aria-label="STARMOND TECHNOLOGY LIMITED — home">
+          <svg class="brand__mark" viewBox="0 0 40 40" role="img" aria-label="Starmond Technology Limited">
+  <rect width="40" height="40" rx="9" fill="#6335A8"/>
+  <path d="M20 8.5l2.9 6.35 6.95.72-5.2 4.66 1.45 6.84L20 23.6l-6.1 3.47 1.45-6.84-5.2-4.66 6.95-.72z" fill="#fff"/>
+  <circle cx="30.5" cy="10.5" r="2.1" fill="#CBB2F0"/>
+</svg>
+          <span class="brand__text">
+            <span class="brand__name">Starmond</span>
+            <span class="brand__tag">Technology Limited</span>
+          </span>
+        </a>
+        <p class="t-sm t-muted" data-business-description>Electrical supplies, fashion, electronics and household products, supplied by STARMOND TECHNOLOGY LIMITED.</p>
+        <div class="site-footer__contact">
+          <span class="site-footer__contact-item" data-contact-row hidden><i data-icon="mail" data-size="sm"></i><a data-business-email href="#"></a></span>
+          <span class="site-footer__contact-item" data-contact-row hidden><i data-icon="phone" data-size="sm"></i><a data-business-phone href="#"></a></span>
+          <span class="site-footer__contact-item" data-contact-row hidden><i data-icon="map-pin" data-size="sm"></i><span data-business-address></span></span>
+        </div>
+        <div class="site-footer__social" data-social-links hidden></div>
+      </div>
+
+      <nav aria-labelledby="footer-shop">
+        <h2 class="site-footer__title" id="footer-shop">Shop</h2>
+        <ul class="site-footer__links" data-footer-categories>
+          <li><a href="/shop.html">All products</a></li>
+        </ul>
+      </nav>
+
+      <nav aria-labelledby="footer-care">
+        <h2 class="site-footer__title" id="footer-care">Customer care</h2>
+        <ul class="site-footer__links">
+          <li><a href="/contact.html">Contact us</a></li>
+          <li><a href="/faq.html">Frequently asked questions</a></li>
+          <li><a href="/track-order.html">Track an order</a></li>
+          <li><a href="/policies/shipping.html">Shipping policy</a></li>
+          <li><a href="/policies/returns.html">Returns and refunds</a></li>
+          <li><a href="/account.html">My account</a></li>
+        </ul>
+      </nav>
+
+      <nav aria-labelledby="footer-company">
+        <h2 class="site-footer__title" id="footer-company">Company</h2>
+        <ul class="site-footer__links">
+          <li><a href="/about.html">About us</a></li>
+          <li><a href="/policies/privacy.html">Privacy policy</a></li>
+          <li><a href="/policies/terms.html">Terms and conditions</a></li>
+          <li><a href="/shop.html?sort=newest">New arrivals</a></li>
+          <li><a href="/shop.html?featured=1">Featured products</a></li>
+        </ul>
+      </nav>
     </div>
-    <nav class="footer-col" aria-label="Shop categories">
-      <h2 class="footer-col__title">Shop</h2>
-      <ul>
-          <li><a href="category/laptops-computing/">Laptops &amp; Computing</a></li>
-          <li><a href="category/phones-tablets/">Phones &amp; Tablets</a></li>
-          <li><a href="category/audio-headphones/">Audio &amp; Headphones</a></li>
-          <li><a href="category/wearables-smart-devices/">Wearables &amp; Smart Devices</a></li>
-          <li><a href="category/power-charging/">Power &amp; Charging</a></li>
-          <li><a href="category/accessories-cables/">Accessories &amp; Cables</a></li>
-        <li><a href="shop.html">All products</a></li>
-        <li><a href="deals.html">Deals</a></li>
-      </ul>
-    </nav>
-    <nav class="footer-col" aria-label="Customer service">
-      <h2 class="footer-col__title">Customer service</h2>
-      <ul>
-        <li><a href="track-order.html">Track an order</a></li>
-        <li><a href="shipping-returns.html">Shipping &amp; returns</a></li>
-        <li><a href="faq.html">FAQs</a></li>
-        <li><a href="contact.html">Contact us</a></li>
-        <li><a href="account.html">Your account</a></li>
-      </ul>
-    </nav>
-    <nav class="footer-col" aria-label="Company">
-      <h2 class="footer-col__title">Company</h2>
-      <ul>
-        <li><a href="about.html">About STARMOND</a></li>
-        <li><a href="privacy.html">Privacy policy</a></li>
-        <li><a href="terms.html">Terms of service</a></li>
-        <li><a href="admin/index.html" data-staff-only hidden>Staff dashboard</a></li>
-      </ul>
-    </nav>
-  </div>
-  <div class="container footer-bottom">
-    <p>&copy; 2026 STARMOND TECHNOLOGY LIMITED. All rights reserved. RC details available on request.</p>
-    <p class="footer-bottom__pay"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-lock"></use></svg> Payments secured by Paystack &middot; Prices in Nigerian Naira (NGN)</p>
+
+    <div class="site-footer__bottom">
+      <p>&copy; <span data-current-year>2026</span> <span data-business-name>STARMOND TECHNOLOGY LIMITED</span>. All rights reserved.</p>
+      <div class="site-footer__legal">
+        <a href="/policies/privacy.html">Privacy</a>
+        <a href="/policies/terms.html">Terms</a>
+        <a href="/policies/shipping.html">Shipping</a>
+        <a href="/policies/returns.html">Returns</a>
+      </div>
+    </div>
   </div>
 </footer>
-<div class="modal" data-modal hidden>
-  <div class="modal__backdrop" data-modal-close></div>
-  <div class="modal__dialog" role="dialog" aria-modal="true" aria-labelledby="modal-title" tabindex="-1">
-    <header class="modal__head">
-      <h2 class="h3" id="modal-title" data-modal-title>Dialog</h2>
-      <button class="icon-btn" type="button" data-modal-close aria-label="Close dialog"><svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg></button>
-    </header>
-    <div class="modal__body" data-modal-body></div>
-    <footer class="modal__foot" data-modal-foot></footer>
-  </div>
-</div>
-<div class="toast-stack" data-toast-stack aria-live="polite" aria-atomic="false"></div>
-<noscript><div class="noscript">This store needs JavaScript for cart, checkout and account features. Product pages and navigation still work without it.</div></noscript>
-<script src="assets/js/app.js" type="module"></script>
-<script src="assets/js/pages/account.js" type="module"></script>
 </body>
 </html>

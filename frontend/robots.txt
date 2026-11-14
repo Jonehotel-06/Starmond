@@ -1,21 +1,42 @@
-# robots.txt — STARMOND TECHNOLOGY LIMITED
+# robots.txt — STARMOND TECHNOLOGY LIMITED storefront
+#
+# NOTE: robots.txt is a crawler hint, NOT access control. Private data is
+# protected by backend authentication and authorization, never by this file.
+#
+# Replace the Sitemap host at deploy time (tools/write-config.mjs does this
+# when SITE_URL is set).
+
 User-agent: *
 Allow: /
+Allow: /assets/
+Allow: /shop/
+Allow: /products/
+Allow: /policies/
+
+# Private, transactional and duplicate-content surfaces.
+Disallow: /admin/
+Disallow: /account.html
+Disallow: /orders.html
+Disallow: /order-detail.html
+Disallow: /wishlist.html
 Disallow: /cart.html
 Disallow: /checkout.html
-Disallow: /payment-callback.html
-Disallow: /order.html
-Disallow: /account.html
+Disallow: /payment-success.html
+Disallow: /payment-failed.html
+Disallow: /payment-pending.html
 Disallow: /login.html
 Disallow: /register.html
 Disallow: /forgot-password.html
 Disallow: /reset-password.html
-Disallow: /wishlist.html
-Disallow: /track-order.html
-Disallow: /admin/
-Disallow: /*?q=
+Disallow: /verify-email.html
+Disallow: /search.html
+Disallow: /category.html
+Disallow: /product.html
+Disallow: /api/
+Disallow: /*?sort=
 Disallow: /*?page=
+Disallow: /*?mode=
+Disallow: /*?token=
+Disallow: /*?ref=
 
-Sitemap: https://www.starmondtechnology.com/sitemap.xml
-Sitemap: https://www.starmondtechnology.com/sitemap-products.xml
-Sitemap: https://www.starmondtechnology.com/sitemap-categories.xml
+# Sitemap host is injected at deploy time with tools/write-config.mjs.

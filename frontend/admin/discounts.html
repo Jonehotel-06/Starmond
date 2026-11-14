@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en-NG">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Discounts — Starmond Admin</title>
+<meta name="description" content="Discounts administration for Starmond Technology Limited.">
+<link rel="canonical" href="/admin/discounts.html">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#6335A8">
+<meta name="format-detection" content="telephone=no">
+<meta name="author" content="STARMOND TECHNOLOGY LIMITED">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="STARMOND TECHNOLOGY LIMITED">
+<meta property="og:title" content="Discounts — Starmond Admin">
+<meta property="og:description" content="Discounts administration for Starmond Technology Limited.">
+<meta property="og:url" content="/admin/discounts.html">
+<meta property="og:locale" content="en_NG">
+
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Discounts — Starmond Admin">
+<meta name="twitter:description" content="Discounts administration for Starmond Technology Limited.">
+
+<link rel="icon" href="/assets/icons/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/icons/icon-192.png">
+<link rel="manifest" href="/manifest.webmanifest">
+
+<link rel="stylesheet" href="/assets/css/variables.css">
+<link rel="stylesheet" href="/assets/css/typography.css">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="stylesheet" href="/assets/css/components.css">
+<link rel="stylesheet" href="/assets/css/skeletons.css">
+<link rel="stylesheet" href="/assets/css/pages/storefront.css">
+<link rel="stylesheet" href="/assets/css/responsive.css">
+<link rel="stylesheet" href="/assets/css/pages/admin.css">
+<script src="/assets/js/config.js"></script>
+
+<script type="module" src="/assets/js/admin/module.js"></script>
+</head>
+<body class="admin-body">
+<a class="sr-only sr-only-focusable skip-link" href="#main">Skip to main content</a>
+<div class="drawer-backdrop" data-admin-backdrop></div>
+<div class="admin-shell">
+<aside class="admin-sidebar" id="admin-sidebar" data-admin-sidebar aria-label="Administration navigation">
+  <div class="admin-sidebar__head">
+    <a class="admin-sidebar__brand" href="/admin/index.html">
+      <svg class="brand__mark" viewBox="0 0 40 40" role="img" aria-label="Starmond Technology Limited">
+  <rect width="40" height="40" rx="9" fill="#6335A8"/>
+  <path d="M20 8.5l2.9 6.35 6.95.72-5.2 4.66 1.45 6.84L20 23.6l-6.1 3.47 1.45-6.84-5.2-4.66 6.95-.72z" fill="#fff"/>
+  <circle cx="30.5" cy="10.5" r="2.1" fill="#CBB2F0"/>
+</svg>
+      <span class="brand__text">
+        <span class="admin-sidebar__brand-name">Starmond</span>
+        <span class="admin-sidebar__brand-tag">Admin console</span>
+      </span>
+    </a>
+    <button type="button" class="icon-btn only-mobile" data-admin-close aria-label="Close administration menu" style="color:#c9c6d4;margin-left:auto"><i data-icon="x"></i></button>
+  </div>
+  <nav class="admin-sidebar__nav">
+    
+    <div class="admin-nav__group">
+      <p class="admin-nav__label">Overview</p>
+      <a class="admin-nav__link" href="/admin/index.html">
+        <i data-icon="dashboard" data-size="sm"></i><span>Dashboard</span>
+      </a><a class="admin-nav__link" href="/admin/reports.html" data-perm="reports.view">
+        <i data-icon="chart" data-size="sm"></i><span>Reports</span>
+      </a>
+    </div>
+    <div class="admin-nav__group">
+      <p class="admin-nav__label">Catalogue</p>
+      <a class="admin-nav__link" href="/admin/products.html" data-perm="products.view">
+        <i data-icon="package" data-size="sm"></i><span>Products</span>
+      </a><a class="admin-nav__link" href="/admin/categories.html" data-perm="categories.view">
+        <i data-icon="folder" data-size="sm"></i><span>Categories</span>
+      </a><a class="admin-nav__link" href="/admin/subcategories.html" data-perm="categories.view">
+        <i data-icon="layers" data-size="sm"></i><span>Subcategories</span>
+      </a><a class="admin-nav__link" href="/admin/variations.html" data-perm="products.view">
+        <i data-icon="grid" data-size="sm"></i><span>Variations</span>
+      </a><a class="admin-nav__link" href="/admin/inventory.html" data-perm="inventory.view">
+        <i data-icon="clipboard" data-size="sm"></i><span>Inventory</span>
+      </a><a class="admin-nav__link" href="/admin/media.html" data-perm="media.view">
+        <i data-icon="image" data-size="sm"></i><span>Media library</span>
+      </a>
+    </div>
+    <div class="admin-nav__group">
+      <p class="admin-nav__label">Sales</p>
+      <a class="admin-nav__link" href="/admin/orders.html" data-perm="orders.view">
+        <i data-icon="receipt" data-size="sm"></i><span>Orders</span>
+      </a><a class="admin-nav__link" href="/admin/payments.html" data-perm="payments.view">
+        <i data-icon="credit-card" data-size="sm"></i><span>Payments</span>
+      </a><a class="admin-nav__link" href="/admin/refunds.html" data-perm="refunds.view">
+        <i data-icon="undo" data-size="sm"></i><span>Refunds</span>
+      </a><a class="admin-nav__link" href="/admin/delivery.html" data-perm="delivery.view">
+        <i data-icon="truck" data-size="sm"></i><span>Delivery</span>
+      </a><a class="admin-nav__link" href="/admin/shipping-zones.html" data-perm="delivery.view">
+        <i data-icon="map-pin" data-size="sm"></i><span>Shipping zones</span>
+      </a>
+    </div>
+    <div class="admin-nav__group">
+      <p class="admin-nav__label">Customers</p>
+      <a class="admin-nav__link" href="/admin/customers.html" data-perm="customers.view">
+        <i data-icon="users" data-size="sm"></i><span>Customers</span>
+      </a><a class="admin-nav__link" href="/admin/reviews.html" data-perm="reviews.view">
+        <i data-icon="star" data-size="sm"></i><span>Reviews</span>
+      </a><a class="admin-nav__link" href="/admin/enquiries.html" data-perm="enquiries.view">
+        <i data-icon="message" data-size="sm"></i><span>Enquiries</span>
+      </a><a class="admin-nav__link" href="/admin/newsletter.html" data-perm="newsletter.view">
+        <i data-icon="mail" data-size="sm"></i><span>Newsletter</span>
+      </a>
+    </div>
+    <div class="admin-nav__group">
+      <p class="admin-nav__label">Marketing</p>
+      <a class="admin-nav__link" href="/admin/discounts.html" aria-current="page" data-perm="discounts.view">
+        <i data-icon="percent" data-size="sm"></i><span>Discounts</span>
+      </a><a class="admin-nav__link" href="/admin/promotions.html" data-perm="promotions.view">
+        <i data-icon="tag" data-size="sm"></i><span>Promotions</span>
+      </a>
+    </div>
+    <div class="admin-nav__group">
+      <p class="admin-nav__label">Content</p>
+      <a class="admin-nav__link" href="/admin/content.html" data-perm="content.view">
+        <i data-icon="file-text" data-size="sm"></i><span>Website content</span>
+      </a><a class="admin-nav__link" href="/admin/homepage.html" data-perm="content.view">
+        <i data-icon="home" data-size="sm"></i><span>Homepage</span>
+      </a><a class="admin-nav__link" href="/admin/seo.html" data-perm="seo.view">
+        <i data-icon="globe" data-size="sm"></i><span>SEO settings</span>
+      </a>
+    </div>
+    <div class="admin-nav__group">
+      <p class="admin-nav__label">System</p>
+      <a class="admin-nav__link" href="/admin/notifications.html" data-perm="notifications.view">
+        <i data-icon="bell" data-size="sm"></i><span>Notifications</span>
+      </a><a class="admin-nav__link" href="/admin/email-logs.html" data-perm="notifications.view">
+        <i data-icon="send" data-size="sm"></i><span>Email logs</span>
+      </a><a class="admin-nav__link" href="/admin/staff.html" data-perm="staff.view">
+        <i data-icon="shield" data-size="sm"></i><span>Staff & permissions</span>
+      </a><a class="admin-nav__link" href="/admin/audit-logs.html" data-perm="audit.view">
+        <i data-icon="eye" data-size="sm"></i><span>Audit logs</span>
+      </a><a class="admin-nav__link" href="/admin/settings.html" data-perm="settings.view">
+        <i data-icon="settings" data-size="sm"></i><span>Business settings</span>
+      </a>
+    </div>
+  </nav>
+  <div class="admin-sidebar__foot">
+    <a class="admin-nav__link" href="/" target="_blank" rel="noopener"><i data-icon="external-link" data-size="sm"></i><span>View storefront</span></a>
+    <button type="button" class="admin-nav__link" data-admin-logout style="width:100%"><i data-icon="log-out" data-size="sm"></i><span>Sign out</span></button>
+  </div>
+</aside>
+<div class="admin-main">
+<div class="admin-topbar">
+  <button type="button" class="icon-btn admin-menu-trigger" data-admin-menu aria-label="Open administration menu" aria-controls="admin-sidebar"><i data-icon="menu"></i></button>
+  <h1 class="admin-topbar__title">Discounts</h1>
+  <div class="admin-topbar__search">
+    <i data-icon="search" data-size="sm"></i>
+    <label class="sr-only" for="admin-global-search">Search the administration console</label>
+    <input class="input" id="admin-global-search" type="search" placeholder="Search products, orders, customers" data-admin-search>
+  </div>
+  <div class="admin-topbar__actions">
+    <a class="icon-btn" href="/admin/notifications.html" aria-label="Notifications"><i data-icon="bell"></i></a>
+    <span class="header-actions__wrap">
+      <button type="button" class="icon-btn" data-admin-profile aria-expanded="false" aria-controls="admin-profile-menu" aria-label="Account menu"><i data-icon="user"></i></button>
+      <div class="menu" id="admin-profile-menu" data-admin-profile-menu hidden></div>
+    </span>
+  </div>
+</div>
+<div class="admin-content" id="main">
+<div class="admin-page-head">
+  <div class="admin-page-head__text">
+    <h2 class="admin-page-head__title">Discounts</h2>
+    <p class="admin-page-head__sub">Create and manage discount codes and their eligibility rules.</p>
+  </div>
+  <div class="admin-page-head__actions" data-module-actions>
+    <button type="button" class="btn btn--primary" data-create data-perm="discounts.create"><i data-icon="plus" data-size="sm"></i> New discount</button>
+  </div>
+</div>
+<div class="data-panel" data-admin-module="discounts">
+  <div class="data-panel__toolbar">
+    <div class="data-panel__search">
+      <i data-icon="search" data-size="sm"></i>
+      <label class="sr-only" for="module-search-discounts">Search discounts</label>
+      <input class="input" id="module-search-discounts" type="search" placeholder="Search discounts" data-module-search>
+    </div>
+    <div class="data-panel__filters" data-module-filters></div>
+    <span class="data-panel__spacer"></span>
+    <button type="button" class="btn btn--secondary btn--sm" data-module-refresh><i data-icon="refresh" data-size="sm"></i> Refresh</button>
+    <button type="button" class="btn btn--secondary btn--sm" data-module-export hidden><i data-icon="download" data-size="sm"></i> Export</button>
+  </div>
+  <div data-module-bulk hidden></div>
+  <div data-module-table data-loading-region aria-busy="true"><div class="sk-table" aria-hidden="true"><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div></div></div>
+  <div class="data-panel__foot">
+    <p class="data-panel__count" data-module-count aria-live="polite"></p>
+    <nav class="pagination" data-module-pagination aria-label="Discounts pagination"></nav>
+  </div>
+</div>
+</div>
+</div>
+</div>
+</body>
+</html>

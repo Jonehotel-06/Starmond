@@ -1,21 +1,44 @@
-/* Early, render-blocking-safe boot script.
-   It only flags capabilities on <html> so the first paint is correct and the
-   page never flashes a "no JavaScript" layout. No business logic lives here. */
-(function () {
-  var html = document.documentElement;
-  html.classList.add('js');
+/**
+ * boot.js — shared page bootstrap.
+ *
+ * Every page module imports `boot()`. It initialises the shell, global
+ * commerce actions, PWA registration and error reporting in a fixed order,
+ * and never blocks first paint on a secondary API request.
+ */
 
-  var cfg = window.STARMOND_CONFIG || {};
-  var host = window.location.hostname;
-  var hosts = cfg.PRODUCTION_HOSTS || [];
-  var isProdHost = hosts.indexOf(host) !== -1;
-  var hasApi = !!(cfg.API_BASE_URL && cfg.API_BASE_URL.trim());
-  var forcedDemo = /[?&]demo=1\b/.test(window.location.search);
+import { initShell } from './navigation.js';
+import { initLiveRegions, initSkeletonVisibility } from './ui.js';
+import { initCommerceActions } from './shop-actions.js';
+import { registerServiceWorker } from './pwa.js';
 
-  var demo = forcedDemo || (!hasApi && !isProdHost);
-  html.dataset.demo = demo ? 'on' : 'off';
+let booted = false;
 
-  /* Network Information API + Service Worker support flags (progressive). */
-  if ('serviceWorker' in navigator) html.dataset.sw = 'on';
-  window.__STARMOND_BOOT__ = { demo: demo, bootedAt: Date.now() };
-})();
+export async function boot({ auth = true, shell = true } = {}) {
+  if (booted) return;
+  booted = true;
+
+  initLiveRegions();
+  initCommerceActions();
+  initSkeletonVisibility();
+
+  if (shell) {
+    // Do not await: the page's own data loading should start immediately.
+    initShell({ auth });
+  }
+
+  registerServiceWorker();
+  reportFatalErrors();
+}
+
+function reportFatalErrors() {
+  if (typeof window === 'undefined') return;
+  window.addEventListener('error', (event) => {
+    // Surface a recoverable message rather than leaving a skeleton running.
+    console.error('[starmond] uncaught error', event.error || event.message);
+  });
+  window.addEventListener('unhandledrejection', (event) => {
+    console.error('[starmond] unhandled rejection', event.reason);
+  });
+}
+
+export default boot;

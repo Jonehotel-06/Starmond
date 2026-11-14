@@ -1,0 +1,45 @@
+# Netlify deployment. API_BASE_URL must be an absolute HTTPS URL here because
+# Netlify serves only the static frontend; set it in the site environment.
+[build]
+  publish = "."
+  command = "node tools/write-config.mjs && node tools/build-pages.mjs && node tools/prerender.mjs"
+
+[[redirects]]
+  from = "/api/*"
+  to = "https://your-backend-domain.example/api/:splat"
+  status = 200
+  force = true
+
+# SEO-friendly URLs fall back to the runtime pages (HTTP 200, not a soft 404).
+[[redirects]]
+  from = "/shop/*"
+  to = "/category.html"
+  status = 200
+
+[[redirects]]
+  from = "/products/*"
+  to = "/product.html"
+  status = 200
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Frame-Options = "SAMEORIGIN"
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[headers]]
+  for = "/admin/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+    Cache-Control = "no-store, private"

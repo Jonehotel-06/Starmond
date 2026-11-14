@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-label="Starmond Technology Limited">
+  <rect width="1200" height="630" fill="#F8F8FB"/>
+  <rect x="0" y="0" width="1200" height="8" fill="#6335A8"/>
+  <g transform="translate(96,220)">
+    <rect width="88" height="88" rx="20" fill="#6335A8"/>
+    <path d="M44 18.7l6.4 14 15.3 1.6-11.4 10.2 3.2 15.1L44 51.9l-13.5 7.7 3.2-15.1-11.4-10.2 15.3-1.6z" fill="#fff"/>
+  </g>
+  <text x="210" y="272" font-family="Segoe UI,Roboto,Helvetica,Arial,sans-serif" font-size="52" font-weight="700" fill="#191820" letter-spacing="2">STARMOND</text>
+  <text x="210" y="308" font-family="Segoe UI,Roboto,Helvetica,Arial,sans-serif" font-size="20" font-weight="600" fill="#777482" letter-spacing="6">TECHNOLOGY LIMITED</text>
+  <text x="96" y="400" font-family="Segoe UI,Roboto,Helvetica,Arial,sans-serif" font-size="34" fill="#34333D">Electricals · Fashion · Electronics · Home essentials</text>
+  <text x="96" y="452" font-family="Segoe UI,Roboto,Helvetica,Arial,sans-serif" font-size="24" fill="#777482">Nationwide delivery across Nigeria · Secure Paystack checkout</text>
+</svg>

@@ -1,171 +1,215 @@
 <!DOCTYPE html>
-<html lang="en-NG" data-root="../" data-page="admin">
+<html lang="en-NG">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Administration | STARMOND TECHNOLOGY LIMITED</title>
-<meta name="description" content="STARMOND TECHNOLOGY LIMITED administration dashboard.">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dashboard — Starmond Admin</title>
+<meta name="description" content="Dashboard administration for Starmond Technology Limited.">
+<link rel="canonical" href="/admin/index.html">
 <meta name="robots" content="noindex, nofollow">
-<meta name="theme-color" content="#14121a">
-<link rel="icon" href="../assets/img/favicon.svg" type="image/svg+xml">
-<link rel="manifest" href="../manifest.webmanifest">
-<link rel="stylesheet" href="../assets/css/main.css">
-<link rel="stylesheet" href="../assets/css/admin.css">
-<script src="../assets/js/config.js"></script>
-<script src="../assets/js/boot.js"></script>
+<meta name="theme-color" content="#6335A8">
+<meta name="format-detection" content="telephone=no">
+<meta name="author" content="STARMOND TECHNOLOGY LIMITED">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="STARMOND TECHNOLOGY LIMITED">
+<meta property="og:title" content="Dashboard — Starmond Admin">
+<meta property="og:description" content="Dashboard administration for Starmond Technology Limited.">
+<meta property="og:url" content="/admin/index.html">
+<meta property="og:locale" content="en_NG">
+
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Dashboard — Starmond Admin">
+<meta name="twitter:description" content="Dashboard administration for Starmond Technology Limited.">
+
+<link rel="icon" href="/assets/icons/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/icons/icon-192.png">
+<link rel="manifest" href="/manifest.webmanifest">
+
+<link rel="stylesheet" href="/assets/css/variables.css">
+<link rel="stylesheet" href="/assets/css/typography.css">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="stylesheet" href="/assets/css/components.css">
+<link rel="stylesheet" href="/assets/css/skeletons.css">
+<link rel="stylesheet" href="/assets/css/pages/storefront.css">
+<link rel="stylesheet" href="/assets/css/responsive.css">
+<link rel="stylesheet" href="/assets/css/pages/admin.css">
+<script src="/assets/js/config.js"></script>
+
+<script type="module" src="/assets/js/admin/dashboard.js"></script>
 </head>
-<body class="page-admin" data-page="admin">
-<svg xmlns="http://www.w3.org/2000/svg" class="sprite" aria-hidden="true" focusable="false">
-<symbol id="i-menu" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></symbol>
-<symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
-<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></symbol>
-<symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5S20 17 20 21"/></symbol>
-<symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7-4.35-7-9.5A4.5 4.5 0 0 1 12 7a4.5 4.5 0 0 1 7 3.5C19 15.65 12 20 12 20z"/></symbol>
-<symbol id="i-cart" viewBox="0 0 24 24"><path d="M3 5h2l2.4 10.2a2 2 0 0 0 2 1.6h7.2a2 2 0 0 0 2-1.55L20.5 8H6"/><circle cx="10" cy="20" r="1.4"/><circle cx="17.5" cy="20" r="1.4"/></symbol>
-<symbol id="i-chevron" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
-<symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
-<symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.2 1 5.9-5.2-2.9-5.2 2.9 1-5.9L3.5 9.7l5.9-.8z"/></symbol>
-<symbol id="i-check" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5"/></symbol>
-<symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l.8 12.5h9.4L17.5 7"/></symbol>
-<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
-<symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
-<symbol id="i-truck" viewBox="0 0 24 24"><path d="M3 7h10v9H3zM13 10h4l3 3v3h-7z"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/></symbol>
-<symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.4-3 7.6-7 9-4-1.4-7-4.6-7-9V6z"/><path d="M9 12l2 2 4-4"/></symbol>
-<symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></symbol>
-<symbol id="i-laptop" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="10.5" rx="1.5"/><path d="M2.5 19h19"/></symbol>
-<symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2.2"/><path d="M10.5 19h3"/></symbol>
-<symbol id="i-headphones" viewBox="0 0 24 24"><path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="14" width="4" height="6" rx="1.6"/><rect x="17" y="14" width="4" height="6" rx="1.6"/></symbol>
-<symbol id="i-watch" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="3"/><path d="M9.5 7V3.5h5V7M9.5 17v3.5h5V17"/></symbol>
-<symbol id="i-battery" viewBox="0 0 24 24"><rect x="2.5" y="8" width="16" height="8" rx="2"/><path d="M21 11v2"/><path d="M10.5 9.5L8 12.5h3l-1.5 2.5"/></symbol>
-<symbol id="i-cable" viewBox="0 0 24 24"><path d="M6 3v5a3 3 0 0 0 3 3h1a3 3 0 0 1 3 3v1a3 3 0 0 0 3 3h2"/><path d="M4 3h4M16 18h4"/></symbol>
-<symbol id="i-wifi" viewBox="0 0 24 24"><path d="M3 9a15 15 0 0 1 18 0M6.5 12.5a10 10 0 0 1 11 0M10 16a5 5 0 0 1 4 0"/><circle cx="12" cy="19.5" r="1"/></symbol>
-<symbol id="i-package" viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/></symbol>
-<symbol id="i-card" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 10h19"/></symbol>
-<symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></symbol>
-<symbol id="i-grid" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></symbol>
-<symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
-<symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2.5h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></symbol>
-<symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6"/></symbol>
-<symbol id="i-logout" viewBox="0 0 24 24"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4"/><path d="M10 8l-4 4 4 4M6 12h9"/></symbol>
-<symbol id="i-tag" viewBox="0 0 24 24"><path d="M3 3h7l11 11-7 7L3 10z"/><circle cx="7.5" cy="7.5" r="1.2"/></symbol>
-<symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v4.5h-4.5"/></symbol>
+<body class="admin-body">
+<a class="sr-only sr-only-focusable skip-link" href="#main">Skip to main content</a>
+<div class="drawer-backdrop" data-admin-backdrop></div>
+<div class="admin-shell">
+<aside class="admin-sidebar" id="admin-sidebar" data-admin-sidebar aria-label="Administration navigation">
+  <div class="admin-sidebar__head">
+    <a class="admin-sidebar__brand" href="/admin/index.html">
+      <svg class="brand__mark" viewBox="0 0 40 40" role="img" aria-label="Starmond Technology Limited">
+  <rect width="40" height="40" rx="9" fill="#6335A8"/>
+  <path d="M20 8.5l2.9 6.35 6.95.72-5.2 4.66 1.45 6.84L20 23.6l-6.1 3.47 1.45-6.84-5.2-4.66 6.95-.72z" fill="#fff"/>
+  <circle cx="30.5" cy="10.5" r="2.1" fill="#CBB2F0"/>
 </svg>
-<a class="skip-link" href="#admin-main">Skip to main content</a>
-<div class="admin-shell" data-admin-shell>
-  <aside class="admin-sidebar" id="admin-sidebar" aria-label="Administration navigation">
-    <div class="admin-sidebar__head">
-      <a class="brand brand--admin" href="../index.html">
-        <span class="brand__mark" aria-hidden="true">S</span>
-        <span class="brand__text"><span class="brand__name">STARMOND</span><span class="brand__sub">ADMINISTRATION</span></span>
-      </a>
-      <button class="icon-btn admin-sidebar__close" type="button" data-admin-nav-close aria-label="Close navigation">
-        <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
-      </button>
-    </div>
-
-    <div class="admin-user" data-admin-user hidden>
-      <span class="admin-user__avatar" data-admin-initials aria-hidden="true">ST</span>
-      <span class="admin-user__meta">
-        <span class="admin-user__name" data-admin-name>&mdash;</span>
-        <span class="admin-user__role" data-admin-role>&mdash;</span>
+      <span class="brand__text">
+        <span class="admin-sidebar__brand-name">Starmond</span>
+        <span class="admin-sidebar__brand-tag">Admin console</span>
       </span>
+    </a>
+    <button type="button" class="icon-btn only-mobile" data-admin-close aria-label="Close administration menu" style="color:#c9c6d4;margin-left:auto"><i data-icon="x"></i></button>
+  </div>
+  <nav class="admin-sidebar__nav">
+    
+    <div class="admin-nav__group">
+      <p class="admin-nav__label">Overview</p>
+      <a class="admin-nav__link" href="/admin/index.html" aria-current="page">
+        <i data-icon="dashboard" data-size="sm"></i><span>Dashboard</span>
+      </a><a class="admin-nav__link" href="/admin/reports.html" data-perm="reports.view">
+        <i data-icon="chart" data-size="sm"></i><span>Reports</span>
+      </a>
     </div>
-
-    <nav class="admin-nav" aria-label="Admin sections">
-      <p class="admin-nav__group">Overview</p>
-      <a class="admin-nav__link" href="#/dashboard" data-admin-link="dashboard"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-chart"></use></svg>Dashboard</a>
-      <p class="admin-nav__group">Catalogue</p>
-      <a class="admin-nav__link" href="#/products" data-admin-link="products" data-perm="products.view"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-grid"></use></svg>Products</a>
-      <a class="admin-nav__link" href="#/categories" data-admin-link="categories" data-perm="categories.view"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-package"></use></svg>Categories</a>
-      <a class="admin-nav__link" href="#/inventory" data-admin-link="inventory" data-perm="inventory.view"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-battery"></use></svg>Inventory</a>
-      <a class="admin-nav__link" href="#/reviews" data-admin-link="reviews" data-perm="reviews.view"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-star"></use></svg>Reviews</a>
-      <p class="admin-nav__group">Sales</p>
-      <a class="admin-nav__link" href="#/orders" data-admin-link="orders" data-perm="orders.view"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-truck"></use></svg>Orders</a>
-      <a class="admin-nav__link" href="#/payments" data-admin-link="payments" data-perm="payments.view"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-card"></use></svg>Payments</a>
-      <a class="admin-nav__link" href="#/refunds" data-admin-link="refunds" data-perm="refunds.view"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-refresh"></use></svg>Refunds</a>
-      <a class="admin-nav__link" href="#/reports" data-admin-link="reports" data-perm="reports.view"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-chart"></use></svg>Reports</a>
-      <p class="admin-nav__group">Customers</p>
-      <a class="admin-nav__link" href="#/customers" data-admin-link="customers" data-perm="customers.view"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-user"></use></svg>Customers</a>
-      <a class="admin-nav__link" href="#/notifications" data-admin-link="notifications" data-perm="notifications.view"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-bell"></use></svg>Notifications</a>
-      <p class="admin-nav__group">Marketing</p>
-      <a class="admin-nav__link" href="#/discounts" data-admin-link="discounts" data-perm="discounts.view"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-tag"></use></svg>Discounts</a>
-      <p class="admin-nav__group">Site</p>
-      <a class="admin-nav__link" href="#/content" data-admin-link="content" data-perm="content.view"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-package"></use></svg>Content</a>
-      <a class="admin-nav__link" href="#/seo" data-admin-link="seo" data-perm="seo.view"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-search"></use></svg>SEO</a>
-      <a class="admin-nav__link" href="#/settings" data-admin-link="settings" data-perm="settings.view"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-settings"></use></svg>Settings</a>
-      <a class="admin-nav__link" href="#/staff" data-admin-link="staff" data-perm="staff.view"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-shield"></use></svg>Staff &amp; roles</a>
-    </nav>
-
-    <div class="admin-sidebar__foot">
-      <a class="admin-nav__link" href="../index.html" target="_blank" rel="noopener"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-arrow"></use></svg>View storefront</a>
-      <button class="admin-nav__link admin-nav__link--btn" type="button" data-admin-signout><svg class="icon icon--sm" aria-hidden="true"><use href="#i-logout"></use></svg>Sign out</button>
+    <div class="admin-nav__group">
+      <p class="admin-nav__label">Catalogue</p>
+      <a class="admin-nav__link" href="/admin/products.html" data-perm="products.view">
+        <i data-icon="package" data-size="sm"></i><span>Products</span>
+      </a><a class="admin-nav__link" href="/admin/categories.html" data-perm="categories.view">
+        <i data-icon="folder" data-size="sm"></i><span>Categories</span>
+      </a><a class="admin-nav__link" href="/admin/subcategories.html" data-perm="categories.view">
+        <i data-icon="layers" data-size="sm"></i><span>Subcategories</span>
+      </a><a class="admin-nav__link" href="/admin/variations.html" data-perm="products.view">
+        <i data-icon="grid" data-size="sm"></i><span>Variations</span>
+      </a><a class="admin-nav__link" href="/admin/inventory.html" data-perm="inventory.view">
+        <i data-icon="clipboard" data-size="sm"></i><span>Inventory</span>
+      </a><a class="admin-nav__link" href="/admin/media.html" data-perm="media.view">
+        <i data-icon="image" data-size="sm"></i><span>Media library</span>
+      </a>
     </div>
-  </aside>
-
-  <div class="admin-main">
-    <header class="admin-topbar">
-      <button class="icon-btn admin-topbar__toggle" type="button" data-admin-nav-toggle aria-expanded="false" aria-controls="admin-sidebar">
-        <svg class="icon" aria-hidden="true"><use href="#i-menu"></use></svg><span class="sr-only">Open navigation</span>
-      </button>
-      <div class="admin-topbar__titles">
-        <h1 class="admin-topbar__title" data-admin-title>Dashboard</h1>
-        <p class="admin-topbar__sub" data-admin-subtitle>Loading&hellip;</p>
-      </div>
-      <div class="admin-topbar__actions">
-        <button class="icon-btn" type="button" data-admin-refresh aria-label="Refresh this view">
-          <svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg>
-        </button>
-        <a class="icon-btn" href="../index.html" target="_blank" rel="noopener" aria-label="Open storefront in a new tab">
-          <svg class="icon" aria-hidden="true"><use href="#i-grid"></use></svg>
-        </a>
-      </div>
-    </header>
-
-    <main class="admin-content" id="admin-main" tabindex="-1" data-admin-view aria-live="polite">
-      <div class="admin-loading" aria-hidden="true">
-        <div class="skeleton skeleton--card"></div>
-        <div class="skeleton skeleton--card"></div>
-      </div>
-    </main>
+    <div class="admin-nav__group">
+      <p class="admin-nav__label">Sales</p>
+      <a class="admin-nav__link" href="/admin/orders.html" data-perm="orders.view">
+        <i data-icon="receipt" data-size="sm"></i><span>Orders</span>
+      </a><a class="admin-nav__link" href="/admin/payments.html" data-perm="payments.view">
+        <i data-icon="credit-card" data-size="sm"></i><span>Payments</span>
+      </a><a class="admin-nav__link" href="/admin/refunds.html" data-perm="refunds.view">
+        <i data-icon="undo" data-size="sm"></i><span>Refunds</span>
+      </a><a class="admin-nav__link" href="/admin/delivery.html" data-perm="delivery.view">
+        <i data-icon="truck" data-size="sm"></i><span>Delivery</span>
+      </a><a class="admin-nav__link" href="/admin/shipping-zones.html" data-perm="delivery.view">
+        <i data-icon="map-pin" data-size="sm"></i><span>Shipping zones</span>
+      </a>
+    </div>
+    <div class="admin-nav__group">
+      <p class="admin-nav__label">Customers</p>
+      <a class="admin-nav__link" href="/admin/customers.html" data-perm="customers.view">
+        <i data-icon="users" data-size="sm"></i><span>Customers</span>
+      </a><a class="admin-nav__link" href="/admin/reviews.html" data-perm="reviews.view">
+        <i data-icon="star" data-size="sm"></i><span>Reviews</span>
+      </a><a class="admin-nav__link" href="/admin/enquiries.html" data-perm="enquiries.view">
+        <i data-icon="message" data-size="sm"></i><span>Enquiries</span>
+      </a><a class="admin-nav__link" href="/admin/newsletter.html" data-perm="newsletter.view">
+        <i data-icon="mail" data-size="sm"></i><span>Newsletter</span>
+      </a>
+    </div>
+    <div class="admin-nav__group">
+      <p class="admin-nav__label">Marketing</p>
+      <a class="admin-nav__link" href="/admin/discounts.html" data-perm="discounts.view">
+        <i data-icon="percent" data-size="sm"></i><span>Discounts</span>
+      </a><a class="admin-nav__link" href="/admin/promotions.html" data-perm="promotions.view">
+        <i data-icon="tag" data-size="sm"></i><span>Promotions</span>
+      </a>
+    </div>
+    <div class="admin-nav__group">
+      <p class="admin-nav__label">Content</p>
+      <a class="admin-nav__link" href="/admin/content.html" data-perm="content.view">
+        <i data-icon="file-text" data-size="sm"></i><span>Website content</span>
+      </a><a class="admin-nav__link" href="/admin/homepage.html" data-perm="content.view">
+        <i data-icon="home" data-size="sm"></i><span>Homepage</span>
+      </a><a class="admin-nav__link" href="/admin/seo.html" data-perm="seo.view">
+        <i data-icon="globe" data-size="sm"></i><span>SEO settings</span>
+      </a>
+    </div>
+    <div class="admin-nav__group">
+      <p class="admin-nav__label">System</p>
+      <a class="admin-nav__link" href="/admin/notifications.html" data-perm="notifications.view">
+        <i data-icon="bell" data-size="sm"></i><span>Notifications</span>
+      </a><a class="admin-nav__link" href="/admin/email-logs.html" data-perm="notifications.view">
+        <i data-icon="send" data-size="sm"></i><span>Email logs</span>
+      </a><a class="admin-nav__link" href="/admin/staff.html" data-perm="staff.view">
+        <i data-icon="shield" data-size="sm"></i><span>Staff & permissions</span>
+      </a><a class="admin-nav__link" href="/admin/audit-logs.html" data-perm="audit.view">
+        <i data-icon="eye" data-size="sm"></i><span>Audit logs</span>
+      </a><a class="admin-nav__link" href="/admin/settings.html" data-perm="settings.view">
+        <i data-icon="settings" data-size="sm"></i><span>Business settings</span>
+      </a>
+    </div>
+  </nav>
+  <div class="admin-sidebar__foot">
+    <a class="admin-nav__link" href="/" target="_blank" rel="noopener"><i data-icon="external-link" data-size="sm"></i><span>View storefront</span></a>
+    <button type="button" class="admin-nav__link" data-admin-logout style="width:100%"><i data-icon="log-out" data-size="sm"></i><span>Sign out</span></button>
+  </div>
+</aside>
+<div class="admin-main">
+<div class="admin-topbar">
+  <button type="button" class="icon-btn admin-menu-trigger" data-admin-menu aria-label="Open administration menu" aria-controls="admin-sidebar"><i data-icon="menu"></i></button>
+  <h1 class="admin-topbar__title">Dashboard</h1>
+  <div class="admin-topbar__search">
+    <i data-icon="search" data-size="sm"></i>
+    <label class="sr-only" for="admin-global-search">Search the administration console</label>
+    <input class="input" id="admin-global-search" type="search" placeholder="Search products, orders, customers" data-admin-search>
+  </div>
+  <div class="admin-topbar__actions">
+    <a class="icon-btn" href="/admin/notifications.html" aria-label="Notifications"><i data-icon="bell"></i></a>
+    <span class="header-actions__wrap">
+      <button type="button" class="icon-btn" data-admin-profile aria-expanded="false" aria-controls="admin-profile-menu" aria-label="Account menu"><i data-icon="user"></i></button>
+      <div class="menu" id="admin-profile-menu" data-admin-profile-menu hidden></div>
+    </span>
+  </div>
+</div>
+<div class="admin-content" id="main">
+<div class="admin-page-head">
+  <div class="admin-page-head__text">
+    <h2 class="admin-page-head__title">Business overview</h2>
+    <p class="admin-page-head__sub">Live figures from the order, payment and inventory systems. Pending payments are never counted as realised revenue.</p>
+  </div>
+  <div class="admin-page-head__actions">
+    <label class="sr-only" for="dash-range">Reporting period</label>
+    <select class="select" id="dash-range" data-dashboard-range style="width:auto">
+      <option value="7">Last 7 days</option>
+      <option value="30" selected>Last 30 days</option>
+      <option value="90">Last 90 days</option>
+      <option value="365">Last 12 months</option>
+    </select>
+    <button type="button" class="btn btn--secondary" data-dashboard-refresh><i data-icon="refresh" data-size="sm"></i> Refresh</button>
   </div>
 </div>
 
-<div class="admin-gate" data-admin-gate hidden>
-  <div class="admin-gate__card card card--pad">
-    <p class="eyebrow">Restricted area</p>
-    <h1 class="h1">Staff sign in</h1>
-    <p class="muted" data-admin-gate-message>Sign in with a staff account to open the administration dashboard. Customer accounts cannot access this area.</p>
-    <form data-admin-login novalidate>
-      <div class="field">
-        <label for="ag-email">Email address</label>
-        <input class="input" id="ag-email" name="email" type="email" autocomplete="username" required>
-      </div>
-      <div class="field">
-        <label for="ag-password">Password</label>
-        <input class="input" id="ag-password" name="password" type="password" autocomplete="current-password" required>
-      </div>
-      <p class="form-error" data-admin-login-error role="alert" hidden></p>
-      <button class="btn btn--primary btn--block btn--lg" type="submit">Sign in</button>
-    </form>
-    <p class="small muted"><a href="../index.html">Return to the storefront</a></p>
+<div data-dashboard-stats data-loading-region aria-busy="true"><div class="admin-stats" aria-hidden="true"><div class="sk-stat"><div class="sk-stat__head"><span class="sk sk--text-sm sk--w-50" aria-hidden="true"></span><span class="sk sk--icon" aria-hidden="true"></span></div><span class="sk sk--title sk--w-60" aria-hidden="true"></span><span class="sk sk--text-sm sk--w-40" aria-hidden="true"></span></div><div class="sk-stat"><div class="sk-stat__head"><span class="sk sk--text-sm sk--w-50" aria-hidden="true"></span><span class="sk sk--icon" aria-hidden="true"></span></div><span class="sk sk--title sk--w-60" aria-hidden="true"></span><span class="sk sk--text-sm sk--w-40" aria-hidden="true"></span></div><div class="sk-stat"><div class="sk-stat__head"><span class="sk sk--text-sm sk--w-50" aria-hidden="true"></span><span class="sk sk--icon" aria-hidden="true"></span></div><span class="sk sk--title sk--w-60" aria-hidden="true"></span><span class="sk sk--text-sm sk--w-40" aria-hidden="true"></span></div><div class="sk-stat"><div class="sk-stat__head"><span class="sk sk--text-sm sk--w-50" aria-hidden="true"></span><span class="sk sk--icon" aria-hidden="true"></span></div><span class="sk sk--title sk--w-60" aria-hidden="true"></span><span class="sk sk--text-sm sk--w-40" aria-hidden="true"></span></div><div class="sk-stat"><div class="sk-stat__head"><span class="sk sk--text-sm sk--w-50" aria-hidden="true"></span><span class="sk sk--icon" aria-hidden="true"></span></div><span class="sk sk--title sk--w-60" aria-hidden="true"></span><span class="sk sk--text-sm sk--w-40" aria-hidden="true"></span></div><div class="sk-stat"><div class="sk-stat__head"><span class="sk sk--text-sm sk--w-50" aria-hidden="true"></span><span class="sk sk--icon" aria-hidden="true"></span></div><span class="sk sk--title sk--w-60" aria-hidden="true"></span><span class="sk sk--text-sm sk--w-40" aria-hidden="true"></span></div><div class="sk-stat"><div class="sk-stat__head"><span class="sk sk--text-sm sk--w-50" aria-hidden="true"></span><span class="sk sk--icon" aria-hidden="true"></span></div><span class="sk sk--title sk--w-60" aria-hidden="true"></span><span class="sk sk--text-sm sk--w-40" aria-hidden="true"></span></div><div class="sk-stat"><div class="sk-stat__head"><span class="sk sk--text-sm sk--w-50" aria-hidden="true"></span><span class="sk sk--icon" aria-hidden="true"></span></div><span class="sk sk--title sk--w-60" aria-hidden="true"></span><span class="sk sk--text-sm sk--w-40" aria-hidden="true"></span></div></div></div>
+
+<div class="admin-grid-2-1">
+  <div class="card">
+    <div class="card__head"><h3 class="card__title">Sales trend</h3><span class="t-meta" data-trend-caption></span></div>
+    <div class="card__body" data-dashboard-chart data-loading-region aria-busy="true">
+      <div class="stack" aria-hidden="true"><span class="sk sk--text-sm sk--w-25" aria-hidden="true"></span><span class="sk" style="height:220px;border-radius:var(--radius-md)"></span></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card__head"><h3 class="card__title">Inventory alerts</h3><a class="t-sm" href="/admin/inventory.html">Manage</a></div>
+    <div class="card__body" data-dashboard-inventory data-loading-region aria-busy="true">
+      <div class="sk-list" aria-hidden="true"><div class="sk-list__item"><span class="sk sk--thumb" aria-hidden="true"></span><div class="sk-list__body"><span class="sk sk--text sk--w-70" aria-hidden="true"></span><span class="sk sk--text-sm sk--w-40" aria-hidden="true"></span></div></div><div class="sk-list__item"><span class="sk sk--thumb" aria-hidden="true"></span><div class="sk-list__body"><span class="sk sk--text sk--w-70" aria-hidden="true"></span><span class="sk sk--text-sm sk--w-40" aria-hidden="true"></span></div></div><div class="sk-list__item"><span class="sk sk--thumb" aria-hidden="true"></span><div class="sk-list__body"><span class="sk sk--text sk--w-70" aria-hidden="true"></span><span class="sk sk--text-sm sk--w-40" aria-hidden="true"></span></div></div><div class="sk-list__item"><span class="sk sk--thumb" aria-hidden="true"></span><div class="sk-list__body"><span class="sk sk--text sk--w-70" aria-hidden="true"></span><span class="sk sk--text-sm sk--w-40" aria-hidden="true"></span></div></div></div>
+    </div>
   </div>
 </div>
 
-<div class="modal" data-modal hidden>
-  <div class="modal__backdrop" data-modal-close></div>
-  <div class="modal__dialog" role="dialog" aria-modal="true" aria-labelledby="modal-title" tabindex="-1">
-    <header class="modal__head">
-      <h2 class="h3" id="modal-title" data-modal-title>Dialog</h2>
-      <button class="icon-btn" type="button" data-modal-close aria-label="Close dialog"><svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg></button>
-    </header>
-    <div class="modal__body" data-modal-body></div>
-    <footer class="modal__foot" data-modal-foot></footer>
+<div class="admin-grid-2">
+  <div class="card">
+    <div class="card__head"><h3 class="card__title">Recent orders</h3><a class="t-sm" href="/admin/orders.html">View all</a></div>
+    <div class="card__body card__body--flush" data-dashboard-orders data-loading-region aria-busy="true"><div class="sk-table" aria-hidden="true"><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div></div></div>
+  </div>
+  <div class="card">
+    <div class="card__head"><h3 class="card__title">Best-selling products</h3><a class="t-sm" href="/admin/reports.html">Full report</a></div>
+    <div class="card__body card__body--flush" data-dashboard-bestsellers data-loading-region aria-busy="true"><div class="sk-table" aria-hidden="true"><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div></div></div>
   </div>
 </div>
-
-<div class="toast-stack" data-toast-stack aria-live="polite" aria-atomic="false"></div>
-
-<script src="../assets/js/app.js" type="module"></script>
-<script src="../assets/js/admin/admin.js" type="module"></script>
+</div>
+</div>
+</div>
 </body>
 </html>

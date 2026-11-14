@@ -1,24 +1,25 @@
 {
-  "name": "STARMOND TECHNOLOGY LIMITED",
-  "short_name": "STARMOND",
-  "description": "Buy laptops, phones, audio, power and networking products with verified stock and nationwide delivery in Nigeria.",
-  "start_url": "./index.html?source=pwa",
-  "scope": "./",
+  "name": "Starmond Technology Limited",
+  "short_name": "Starmond",
+  "description": "Electricals, fashion, electronics and home essentials from Starmond Technology Limited. Nationwide delivery across Nigeria.",
+  "id": "/",
+  "start_url": "/?source=pwa",
+  "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#ffffff",
-  "theme_color": "#5a21d6",
+  "background_color": "#FFFFFF",
+  "theme_color": "#6335A8",
   "lang": "en-NG",
   "dir": "ltr",
-  "categories": ["shopping", "business", "electronics"],
+  "categories": ["shopping", "business"],
   "icons": [
-    { "src": "assets/img/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "assets/img/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "assets/img/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "/assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
-    { "name": "Shop all products", "url": "./shop.html", "description": "Browse the full catalogue" },
-    { "name": "Track an order", "url": "./track-order.html", "description": "Check delivery status" },
-    { "name": "Your cart", "url": "./cart.html", "description": "Review items in your cart" }
+    { "name": "Shop all products", "short_name": "Shop", "url": "/shop.html", "icons": [{ "src": "/assets/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "My orders", "short_name": "Orders", "url": "/orders.html", "icons": [{ "src": "/assets/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Cart", "short_name": "Cart", "url": "/cart.html", "icons": [{ "src": "/assets/icons/icon-192.png", "sizes": "192x192" }] }
   ]
 }
