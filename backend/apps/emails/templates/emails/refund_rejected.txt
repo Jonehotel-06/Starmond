@@ -1,0 +1,3 @@
+{% extends "emails/base.txt" %}
+{% block content %}Hello {{ customer_name }},
+Refund request {{ refund_reference }} for order {{ order_reference }} was not approved.{% if note %} Reason: {{ note }}.{% endif %}{% endblock %}

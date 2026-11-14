@@ -1,0 +1,6 @@
+{% extends "emails/base.html" %}
+{% block content %}
+<p>Hello {{ customer_name }},</p>
+<p>Your refund <strong>{{ refund_reference }}</strong> of <strong>₦{{ amount }}</strong> for order <strong>{{ order_reference }}</strong> has been processed successfully.</p>
+<p>Funds typically appear according to your bank or card provider's timelines.</p>
+{% endblock %}

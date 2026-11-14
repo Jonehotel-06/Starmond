@@ -1,71 +1,76 @@
-"""Public promotion validation plus staff promotion management."""
-from __future__ import annotations
+from decimal import Decimal
 
+from rest_framework import viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
-from rest_framework.throttling import ScopedRateThrottle
+from rest_framework.response import Response
 
-from apps.cart.services import CartService
-from apps.core.permissions import RequiresPermission
-from apps.core.views import BaseAPIView
-from apps.orders.checkout import CheckoutService
-from apps.promotions.models import Promotion
-from apps.promotions.serializers import PromotionSerializer
-from apps.promotions.services import PromotionService
+from apps.audit.services import AuditService
+from apps.core.constants import Perm
+from apps.core.exceptions import ServiceError
+from apps.core.permissions import IsStaffWithPermission
+from apps.products.models import Product, ProductVariation
+
+from .models import Promotion
+from .serializers import PromotionSerializer, PromotionValidateRequestSerializer
+from .services import PromotionService
 
 
-class PromotionValidateView(BaseAPIView):
-    """
-    Validates a code against the live basket without applying it.
+from drf_spectacular.utils import OpenApiTypes, extend_schema
 
-    Returns the authoritative discount, or an explanation, so the cart UI can
-    tell the customer exactly why a code did not work.
-    """
-
+@extend_schema(tags=["promotions"], request=PromotionValidateRequestSerializer, responses=OpenApiTypes.OBJECT)
+class PromotionValidateView(viewsets.ViewSet):
+    """POST /api/promotions/validate/ — preview eligibility for UX.
+    The AUTHORITATIVE application always happens again at checkout."""
     permission_classes = [AllowAny]
-    throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "user"
 
-    def post(self, request):
-        cart = CartService.get_for_request(request, create=False)
-        codes = request.data.get("promo_codes") or ([request.data["code"]] if request.data.get("code") else [])
-        customer = request.user if request.user.is_authenticated else None
-        payload = CheckoutService.preview(
-            cart=cart,
-            product_id=request.data.get("product_id"),
-            variation_id=request.data.get("variation_id"),
-            quantity=request.data.get("quantity", 1),
-            state=request.data.get("state", ""),
-            city=request.data.get("city", ""),
-            promo_codes=codes,
-            customer=customer,
-        )
-        return self.ok(payload)
-
-
-class PublicPromotionListView(BaseAPIView):
-    permission_classes = [AllowAny]
-    throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "anon"
-
-    def get(self, request):
-        rows = PromotionService.active_public_promotions()
-        return self.ok(PromotionSerializer(rows, many=True).data)
-
-
-class StaffPromotionView(BaseAPIView):
-    permission_classes = [RequiresPermission.of("promotions.change_promotion")]
-
-    def get(self, request):
-        from apps.core.pagination import StandardResultsSetPagination
-
-        queryset = Promotion.objects.order_by("-created_at")
-        paginator = StandardResultsSetPagination()
-        page = paginator.paginate_queryset(queryset, request, view=self)
-        return paginator.get_paginated_response(PromotionSerializer(page, many=True).data)
-
-    def post(self, request):
-        serializer = PromotionSerializer(data=request.data)
+    def create(self, request):
+        serializer = PromotionValidateRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        promotion = serializer.save()
-        promotion.full_clean()
-        return self.created(PromotionSerializer(promotion).data, message="Promotion created.")
+        lines, subtotal = [], Decimal('0.00')
+        for raw in serializer.validated_data.get("items", []):
+            product = Product.objects.filter(pk=raw.get("product_id"), status=Product.Status.ACTIVE, is_active=True).first()
+            if not product:
+                raise ServiceError(f"Product {raw.get('product_id')} is not available.", code="product_unavailable")
+            quantity = max(1, int(raw.get("quantity", 1)))
+            variation = None
+            if raw.get("variation_id"):
+                variation = ProductVariation.objects.filter(pk=raw["variation_id"], product=product).first()
+                if not variation:
+                    raise ServiceError("Invalid variation.", code="invalid_variation")
+            unit_price = variation.effective_price if variation else product.effective_price
+            line_total = unit_price * quantity
+            subtotal += line_total
+            lines.append({"product": product, "line_total": line_total})
+        if not lines:
+            raise ServiceError("Provide at least one item to validate a discount.", code="no_items")
+        customer = request.user if request.user.is_authenticated else None
+        promotion, discount = PromotionService.validate(
+            serializer.validated_data["code"], lines=lines, subtotal=subtotal, customer=customer)
+        return Response({"status": "success", "data": {
+            "valid": True, "code": promotion.code, "name": promotion.name,
+            "kind": promotion.kind, "value": str(promotion.value),
+            "discount": str(discount), "subtotal": str(subtotal),
+            "message": f"Discount of ₦{discount} will be applied at checkout.",
+        }})
+
+
+class StaffPromotionViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsStaffWithPermission]
+    permission_codename = Perm.PROMOTIONS_MANAGE
+    serializer_class = PromotionSerializer
+    queryset = Promotion.objects.all()
+    search_fields = ["code", "name"]
+    filterset_fields = ["is_active", "kind", "scope"]
+
+    def perform_create(self, serializer):
+        promo = serializer.save()
+        AuditService.log(self.request.user, "promotion.create", "Promotion", promo.pk, {"code": promo.code}, request=self.request)
+
+    def perform_update(self, serializer):
+        promo = serializer.save()
+        AuditService.log(self.request.user, "promotion.update", "Promotion", promo.pk, {"code": promo.code}, request=self.request)
+
+    def perform_destroy(self, instance):
+        AuditService.log(self.request.user, "promotion.delete", "Promotion", instance.pk, {"code": instance.code}, request=self.request)
+        instance.delete()

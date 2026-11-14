@@ -1,77 +1,128 @@
-"""Public storefront configuration and editable content pages."""
-from __future__ import annotations
-
+from django.utils import timezone
+from rest_framework import viewsets
 from rest_framework.permissions import AllowAny
-from rest_framework.throttling import ScopedRateThrottle
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
-from apps.cms.models import BusinessSetting, ContentPage
-from apps.cms.services import SettingsService
-from apps.core.exceptions import NotFound
-from apps.core.models import PublishableModel
-from apps.core.permissions import IsStaff
-from apps.core.views import BaseAPIView
-from apps.seo.services import SEOService
+from apps.audit.services import AuditService
+from apps.core.constants import Perm
+from apps.core.permissions import IsStaffWithPermission
+from apps.products.models import Product
+from apps.products.serializers import _BaseProductFields
+
+from .models import Banner, HomepageSection, Page
+from .serializers import (
+    BannerSerializer,
+    BusinessSettingsSerializer,
+    HomepageSectionSerializer,
+    PageSerializer,
+)
+from .services import BusinessSettingsService
 
 
-class PublicSettingsView(BaseAPIView):
-    """Everything the frontend needs to render store branding, contact and policy links."""
+from drf_spectacular.utils import OpenApiTypes, extend_schema, extend_schema_view
 
+@extend_schema(tags=["cms"], responses=OpenApiTypes.OBJECT)
+class PublicSettingsView(APIView):
+    """GET /api/cms/settings/ — public-safe business settings (no secrets)."""
     permission_classes = [AllowAny]
-    throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "anon"
 
     def get(self, request):
-        return self.ok({
-            "settings": SettingsService.all(public_only=True),
-            "banners": SettingsService.active_banners(),
-            "pages": SettingsService.public_pages(),
-            "pickup_locations": SettingsService.pickup_locations(),
-            "structured_data": {
-                "organization": SEOService.organisation_structured_data(),
-                "website": SEOService.website_structured_data(),
-            },
-        })
+        values = BusinessSettingsService.all_values()
+        public = {k: values.get(k) for k in (
+            "business_name", "business_description", "contact_email", "contact_phone",
+            "business_address", "currency", "currency_symbol", "social_links", "logo_key",
+            "favicon_key", "homepage_hero", "footer_text", "support_hours")}
+        return Response({"status": "success", "data": public})
 
 
-class ContentPageDetailView(BaseAPIView):
+class PublicPageViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [AllowAny]
-    throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "anon"
+    serializer_class = PageSerializer
+    queryset = Page.objects.filter(is_published=True)
+    lookup_field = "slug"
+    pagination_class = None
 
-    def get(self, request, slug: str):
-        page = ContentPage.objects.filter(
-            slug=slug, status=PublishableModel.Status.PUBLISHED
-        ).first()
-        if page is None:
-            raise NotFound("Page not found.")
-        return self.ok({
-            "slug": page.slug,
-            "title": page.title,
-            "subtitle": page.subtitle,
-            "body": page.body,
-            "excerpt": page.excerpt,
-            "hero_image": page.hero_image.url if page.hero_image else None,
-            "updated_at": page.updated_at,
-            "seo": {
-                "title": page.meta_title or page.title,
-                "description": page.meta_description or page.excerpt,
-                "canonical": page.canonical_url or f"/page/{page.slug}",
-                "robots": "noindex,nofollow" if page.noindex else "index,follow",
-            },
-        })
+    def list(self, request, *args, **kwargs):
+        return Response({"status": "success", "data": self.get_serializer(self.get_queryset(), many=True).data})
+
+    def retrieve(self, request, *args, **kwargs):
+        page = self.get_object()
+        return Response({"status": "success", "data": self.get_serializer(page).data, "seo": page.effective_seo()})
 
 
-class StaffSettingsUpdateView(BaseAPIView):
-    permission_classes = [IsStaff]
+@extend_schema(tags=["cms"], responses=OpenApiTypes.OBJECT)
+class HomepageView(APIView):
+    """GET /api/cms/homepage/ — small, cache-friendly homepage payload:
+    sections, banners and limited product rows (never the full catalogue)."""
+    permission_classes = [AllowAny]
 
     def get(self, request):
-        return self.ok({"settings": SettingsService.grouped(public_only=False)})
+        from django.core.cache import cache
+        from django.conf import settings
+        cached = cache.get("cms:homepage")
+        if cached:
+            return Response({"status": "success", "data": cached, "cached": True})
+        now = timezone.now()
+        sections = HomepageSection.objects.filter(is_active=True)
+        banners = Banner.objects.filter(is_active=True).filter(
+            models_q_now(now)).order_by("display_order")[:6]
+        data = {
+            "settings": {k: BusinessSettingsService.all_values().get(k) for k in
+                         ("business_name", "homepage_hero", "currency_symbol")},
+            "sections": HomepageSectionSerializer(sections, many=True).data,
+            "banners": BannerSerializer(banners, many=True).data,
+            "featured": _BaseProductFields(
+                Product.objects.public().filter(is_featured=True).select_related("category")[:8], many=True).data,
+            "new_arrivals": _BaseProductFields(
+                Product.objects.public().filter(is_new_arrival=True).select_related("category")[:8], many=True).data,
+        }
+        cache.set("cms:homepage", data, settings.CACHE_TTL_SHORT)
+        return Response({"status": "success", "data": data, "cached": False})
+
+
+def models_q_now(now):
+    from django.db.models import Q
+    return (Q(starts_at__isnull=True) | Q(starts_at__lte=now)) & (Q(ends_at__isnull=True) | Q(ends_at__gte=now))
+
+
+@extend_schema_view(
+    get=extend_schema(tags=["cms"], responses=OpenApiTypes.OBJECT),
+    patch=extend_schema(tags=["cms"], request=BusinessSettingsSerializer, responses=OpenApiTypes.OBJECT))
+class StaffSettingsView(APIView):
+    permission_classes = [IsStaffWithPermission]
+    permission_codename = Perm.SETTINGS_MANAGE
+
+    def get(self, request):
+        return Response({"status": "success", "data": BusinessSettingsService.all_values(use_cache=False)})
 
     def patch(self, request):
-        values = request.data.get("settings") or request.data
-        if not isinstance(values, dict):
-            from apps.core.exceptions import ValidationError
+        serializer = BusinessSettingsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        values = BusinessSettingsService.update(serializer.validated_data["values"], user=request.user)
+        AuditService.log(request.user, "settings.update", "BusinessSetting", "1", {"keys": list(serializer.validated_data["values"].keys())}, request=request)
+        return Response({"status": "success", "data": values})
 
-            raise ValidationError("Settings must be submitted as an object.")
-        updated = SettingsService.update_many(values, actor=request.user)
-        return self.ok({"updated": updated}, message="Settings saved.")
+
+class StaffPageViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsStaffWithPermission]
+    permission_codename = Perm.CMS_MANAGE
+    serializer_class = PageSerializer
+    queryset = Page.objects.all()
+    lookup_field = "slug"
+
+
+class StaffHomepageSectionViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsStaffWithPermission]
+    permission_codename = Perm.CMS_MANAGE
+    serializer_class = HomepageSectionSerializer
+    queryset = HomepageSection.objects.all()
+    pagination_class = None
+
+
+class StaffBannerViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsStaffWithPermission]
+    permission_codename = Perm.CMS_MANAGE
+    serializer_class = BannerSerializer
+    queryset = Banner.objects.all()
+    pagination_class = None

@@ -1,32 +1,16 @@
-# STARMOND TECHNOLOGY LIMITED — backend dependencies
-# Python 3.11+ (developed and tested on 3.13)
-
-# --- Core framework -------------------------------------------------------
-Django==5.0.6
-djangorestframework==3.15.2
-djangorestframework-simplejwt==5.3.1
-django-cors-headers==4.3.1
-django-filter==24.2
-drf-spectacular==0.27.2
-
-# --- Configuration --------------------------------------------------------
-python-decouple
-
-# --- Database drivers -----------------------------------------------------
-# Uncomment the driver for your production database.
-# psycopg[binary]==3.2.3          # PostgreSQL (recommended)
-mysqlclient==2.2.4              # MySQL 8+ / MariaDB
-
-# --- Files & media --------------------------------------------------------
-Pillow>=11.0.0
-
-# --- Payments -------------------------------------------------------------
-requests==2.32.3
-
-# --- Reporting / exports --------------------------------------------------
-openpyxl==3.1.2
-reportlab==4.2.0
-
-# --- Testing --------------------------------------------------------------
-pytest==8.2.2
-pytest-django==4.8.0
+# STARMOND TECHNOLOGY LIMITED backend — production dependencies
+Django>=5.2,<5.3
+djangorestframework>=3.15
+django-filter>=24.3
+django-cors-headers>=4.4
+drf-spectacular>=0.27
+requests>=2.32
+Pillow>=10.4
+celery[redis]>=5.4
+redis>=5.0
+django-storages>=1.14
+boto3>=1.35
+mysqlclient>=2.2 ; platform_system != "Windows"
+openpyxl>=3.1
+reportlab>=4.2
+gunicorn>=22.0

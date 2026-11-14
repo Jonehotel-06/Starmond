@@ -1,42 +1,37 @@
-"""Production settings — hardened defaults, fails closed on misconfiguration."""
+"""Production settings — hardened. Validates required configuration at startup."""
+from django.core.exceptions import ImproperlyConfigured
+
 from .base import *  # noqa: F401,F403
-from .base import env, env_bool, env_list
+from .base import env
 
 DEBUG = False
 
-if SECRET_KEY in {"", "unsafe-dev-key-change-me"}:  # noqa: F405
-    raise RuntimeError("DJANGO_SECRET_KEY must be set to a strong unique value in production.")
+if SECRET_KEY == "insecure-dev-only-change-me":  # noqa: F405
+    raise ImproperlyConfigured("DJANGO_SECRET_KEY must be set in production.")
 
-ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS")
-if not ALLOWED_HOSTS:
-    raise RuntimeError("DJANGO_ALLOWED_HOSTS must be set in production.")
-
-if not PAYSTACK_SECRET_KEY:  # noqa: F405
-    raise RuntimeError("PAYSTACK_SECRET_KEY must be configured in production.")
-
-# TLS / cookies
-SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", True)
-SECURE_HSTS_SECONDS = int(env("SECURE_HSTS_SECONDS", "31536000"))
-SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-SECURE_HSTS_PRELOAD = True
+# HTTPS / cookie hardening
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 SESSION_COOKIE_SAMESITE = "Lax"
-CSRF_COOKIE_SAMESITE = "Lax"
+SECURE_SSL_REDIRECT = env("SECURE_SSL_REDIRECT", default="true", cast=bool)
+SECURE_HSTS_SECONDS = env("SECURE_HSTS_SECONDS", default=31536000, cast=int)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
+X_FRAME_OPTIONS = "DENY"
 
-# CORS must be explicit in production.
-CORS_ALLOW_ALL_ORIGINS = False
-if not CORS_ALLOWED_ORIGINS:  # noqa: F405
-    raise RuntimeError("CORS_ALLOWED_ORIGINS must be set in production.")
+# Paystack keys are mandatory in production.
+if not PAYSTACK_SECRET_KEY or not PAYSTACK_WEBHOOK_SECRET:  # noqa: F405
+    raise ImproperlyConfigured("PAYSTACK_SECRET_KEY and PAYSTACK_WEBHOOK_SECRET must be set in production.")
 
-# Hashed static file names. In Django 5 this must be expressed through STORAGES
-# (setting STATICFILES_STORAGE alongside STORAGES is an error).
-STORAGES = {
-    **STORAGES,  # noqa: F405
-    "staticfiles": {
-        "BACKEND": "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"
-    },
-}
+# MySQL is mandatory in production.
+if DB_ENGINE != "mysql":  # noqa: F405
+    raise ImproperlyConfigured("Production requires MySQL (DB_ENGINE=mysql).")
 
-if EMAIL_BACKEND.endswith("console.EmailBackend"):  # noqa: F405
-    raise RuntimeError("A real EMAIL_BACKEND must be configured in production.")
+# Transactional email provider must be configured.
+if EMAIL_BACKEND == "django.core.mail.backends.console.EmailBackend":  # noqa: F405
+    raise ImproperlyConfigured("Configure a real EMAIL_BACKEND in production.")
+
+LOGGING["root"]["level"] = env("DJANGO_LOG_LEVEL", default="WARNING")  # noqa: F405

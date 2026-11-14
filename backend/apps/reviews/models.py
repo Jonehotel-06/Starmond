@@ -1,83 +1,44 @@
-"""
-Product reviews with moderation and verified-purchase badges.
-
-The "verified purchase" flag is derived from real order records, never from a
-client-supplied boolean (Section 17).
-"""
-from __future__ import annotations
-
-import uuid
-
 from django.conf import settings
-from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
-from apps.core.models import BaseModel
+from apps.core.models import TimeStampedModel
 
 
-class Review(BaseModel):
+class ReviewQuerySet(models.QuerySet):
+    def approved(self):
+        return self.filter(moderation_status=Review.ModerationStatus.APPROVED)
+
+
+class Review(TimeStampedModel):
     class ModerationStatus(models.TextChoices):
-        PENDING = "pending", "Pending review"
+        PENDING = "pending", "Pending moderation"
         APPROVED = "approved", "Approved"
         REJECTED = "rejected", "Rejected"
 
     product = models.ForeignKey("products.Product", on_delete=models.CASCADE, related_name="reviews")
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="reviews")
-    order_item = models.ForeignKey(
-        "orders.OrderItem", null=True, blank=True, on_delete=models.SET_NULL,
-        related_name="reviews",
-    )
-    rating = models.PositiveSmallIntegerField(
-        validators=[MinValueValidator(1), MaxValueValidator(5)]
-    )
+    customer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="reviews")
+    order = models.ForeignKey("orders.Order", on_delete=models.SET_NULL, null=True, blank=True, related_name="reviews")
+    rating = models.PositiveSmallIntegerField()
     title = models.CharField(max_length=150, blank=True)
-    comment = models.TextField(max_length=4000)
-    is_verified_purchase = models.BooleanField(default=False, editable=False)
-    is_approved = models.BooleanField(default=False, db_index=True)
-    moderation_status = models.CharField(
-        max_length=20, choices=ModerationStatus.choices, default=ModerationStatus.PENDING,
-        db_index=True,
-    )
-    moderation_note = models.CharField(max_length=255, blank=True)
-    moderated_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
-        related_name="reviews_moderated",
-    )
-    moderated_at = models.DateTimeField(null=True, blank=True)
-    helpful_count = models.PositiveIntegerField(default=0)
-    is_flagged = models.BooleanField(default=False)
-    staff_reply = models.TextField(blank=True)
-    replied_at = models.DateTimeField(null=True, blank=True)
+    body = models.TextField(max_length=4000)
+    is_verified_purchase = models.BooleanField(default=False)
+    moderation_status = models.CharField(max_length=10, choices=ModerationStatus.choices,
+                                         default=ModerationStatus.PENDING, db_index=True)
+    moderator_note = models.CharField(max_length=255, blank=True)
+    moderated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                     null=True, blank=True, related_name="moderated_reviews")
+
+    objects = ReviewQuerySet.as_manager()
 
     class Meta:
         db_table = "reviews_review"
         ordering = ["-created_at"]
         constraints = [
-            models.UniqueConstraint(fields=["product", "user"], name="uniq_review_per_customer"),
+            models.CheckConstraint(check=models.Q(rating__gte=1) & models.Q(rating__lte=5), name="rating_range"),
+            models.UniqueConstraint(fields=["product", "customer"], name="one_review_per_product_per_customer",
+                                      condition=models.Q(customer__isnull=False)),
         ]
-        indexes = [
-            models.Index(fields=["product", "is_approved", "-created_at"]),
-            models.Index(fields=["moderation_status", "-created_at"]),
-        ]
+        indexes = [models.Index(fields=["product", "moderation_status"])]
 
-    def __str__(self) -> str:
-        return f"{self.rating}★ {self.product_id} by {self.user_id}"
-
-    @property
-    def reviewer_name(self) -> str:
-        name = self.user.display_name if self.user_id else "Customer"
-        parts = name.split()
-        if len(parts) > 1:
-            return f"{parts[0]} {parts[-1][0]}."
-        return name
-
-
-class ReviewHelpfulVote(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    review = models.ForeignKey(Review, on_delete=models.CASCADE, related_name="helpful_votes")
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="review_votes")
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = "reviews_helpful_vote"
-        constraints = [models.UniqueConstraint(fields=["review", "user"], name="uniq_review_vote")]
+    def __str__(self):
+        return f"{self.product.sku}:{self.rating}*"

@@ -1,12 +1,9 @@
 from django.contrib import admin
-
-from apps.categories.models import Category
-
+from .models import Category
 
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
-    list_display = ("name", "path", "depth", "parent", "status", "is_featured", "position")
-    list_filter = ("status", "is_active", "is_featured", "depth")
-    search_fields = ("name", "slug", "path")
+    list_display = ["name", "slug", "parent", "display_order", "is_active"]
+    list_filter = ["is_active", "parent"]
+    search_fields = ["name", "slug"]
     prepopulated_fields = {"slug": ("name",)}
-    readonly_fields = ("path", "depth", "published_at")

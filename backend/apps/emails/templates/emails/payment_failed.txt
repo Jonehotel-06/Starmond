@@ -1,0 +1,6 @@
+{% extends "emails/base.txt" %}
+{% block content %}Hello {{ customer_name }},
+
+Payment for order {{ reference }} could not be confirmed.
+Reason: {{ reason|default:"Not provided" }}
+Retry before {{ expires_at }}.{% endblock %}

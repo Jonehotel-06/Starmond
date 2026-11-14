@@ -1,12 +1,23 @@
-from django.urls import path
+from django.urls import include, path
+from rest_framework.routers import DefaultRouter
 
-from apps.payments import views
+from .views import (
+    CustomerPaymentListView,
+    PaystackInitializeView,
+    PaystackVerifyView,
+    PaystackWebhookView,
+    StaffPaymentViewSet,
+)
 
 app_name = "payments"
 
+router = DefaultRouter()
+router.register("admin", StaffPaymentViewSet, basename="payment-staff")
+
 urlpatterns = [
-    path("initialize/", views.PaymentInitializeView.as_view(), name="initialize"),
-    path("verify/", views.PaymentVerifyView.as_view(), name="verify"),
-    path("config/", views.PaymentConfigView.as_view(), name="config"),
-    path("webhook/paystack/", views.PaystackWebhookView.as_view(), name="paystack-webhook"),
+    path("paystack/initialize/", PaystackInitializeView.as_view(), name="paystack-initialize"),
+    path("paystack/verify/", PaystackVerifyView.as_view(), name="paystack-verify"),
+    path("paystack/webhook/", PaystackWebhookView.as_view(), name="paystack-webhook"),
+    path("mine/", CustomerPaymentListView.as_view(), name="customer-payments"),
+    path("", include(router.urls)),
 ]

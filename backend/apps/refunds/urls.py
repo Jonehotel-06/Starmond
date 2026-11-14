@@ -1,13 +1,12 @@
-from django.urls import path
+from django.urls import include, path
+from rest_framework.routers import DefaultRouter
 
-from apps.refunds import views
+from .views import CustomerRefundViewSet, StaffRefundViewSet
 
 app_name = "refunds"
 
-urlpatterns = [
-    path("", views.CustomerRefundRequestView.as_view(), name="request"),
-    path("mine/", views.CustomerRefundListView.as_view(), name="mine"),
-    path("eligibility/<str:order_number>/", views.RefundEligibilityView.as_view(), name="eligibility"),
-    path("admin/", views.StaffRefundQueueView.as_view(), name="staff-queue"),
-    path("admin/<uuid:refund_id>/<str:action>/", views.StaffRefundActionView.as_view(), name="staff-action"),
-]
+router = DefaultRouter()
+router.register("requests", CustomerRefundViewSet, basename="refund-customer")
+router.register("admin", StaffRefundViewSet, basename="refund-staff")
+
+urlpatterns = [path("", include(router.urls))]

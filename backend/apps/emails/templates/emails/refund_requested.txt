@@ -1,0 +1,3 @@
+{% extends "emails/base.txt" %}
+{% block content %}Hello {{ customer_name }},
+Refund request {{ refund_reference }} received for order {{ order_reference }} (NGN {{ amount }}). We will review it and notify you.{% endblock %}

@@ -1,0 +1,6 @@
+{% extends "emails/base.html" %}
+{% block content %}
+<p>Hello {{ customer_name }},</p>
+<p>We received your refund request <strong>{{ refund_reference }}</strong> for order <strong>{{ order_reference }}</strong> (₦{{ amount }}).</p>
+<p>Our team will review it according to the published returns and refund policy. You will be notified of the outcome.</p>
+{% endblock %}

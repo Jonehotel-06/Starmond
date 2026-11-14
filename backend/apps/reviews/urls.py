@@ -1,15 +1,15 @@
-from django.urls import path
+from django.urls import include, path
+from rest_framework.routers import DefaultRouter
 
-from apps.reviews import views
+from .views import CustomerReviewCreateView, ProductReviewListView, StaffReviewViewSet
 
 app_name = "reviews"
 
+router = DefaultRouter()
+router.register("product/(?P<product_slug>[^/]+)", ProductReviewListView, basename="product-reviews")
+router.register("admin", StaffReviewViewSet, basename="review-staff")
+
 urlpatterns = [
-    path("product/<str:slug>/", views.ProductReviewsView.as_view(), name="product-reviews"),
-    path("", views.ReviewCreateView.as_view(), name="create"),
-    path("mine/", views.MyReviewsView.as_view(), name="mine"),
-    path("<uuid:review_id>/", views.ReviewUpdateView.as_view(), name="update"),
-    path("<uuid:review_id>/helpful/", views.ReviewHelpfulView.as_view(), name="helpful"),
-    path("admin/", views.StaffReviewModerationView.as_view(), name="staff-list"),
-    path("admin/<uuid:review_id>/", views.StaffReviewModerationView.as_view(), name="staff-moderate"),
+    path("", CustomerReviewCreateView.as_view({"post": "create"}), name="review-create"),
+    path("", include(router.urls)),
 ]

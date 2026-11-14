@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ meta.title }}</title>
+<meta name="description" content="{{ meta.description }}">
+<meta name="robots" content="{{ meta.robots }}">
+<link rel="canonical" href="{{ meta.canonical_url }}">
+<meta property="og:site_name" content="{{ meta.og.site_name }}">
+<meta property="og:title" content="{{ meta.og.title }}">
+<meta property="og:description" content="{{ meta.og.description }}">
+<meta property="og:type" content="website">
+{% if meta.og.image %}<meta property="og:image" content="{{ meta.og.image }}">{% endif %}
+<script type="application/ld+json">{{ breadcrumb_json|safe }}</script>
+</head>
+<body>
+<header><strong>STARMOND TECHNOLOGY LIMITED</strong> — <a href="/">Home</a></header>
+<nav aria-label="Breadcrumb"><ol>{% for crumb in category.breadcrumb %}<li><a href="{{ crumb.url_path }}">{{ crumb.name }}</a></li>{% endfor %}</ol></nav>
+<main>
+<h1>{{ category.name }}</h1>
+{% if category.description %}<p>{{ category.description }}</p>{% endif %}
+{% if subcategories %}<h2>Subcategories</h2><ul>{% for sub in subcategories %}<li><a href="{{ sub.url_path }}">{{ sub.name }}</a></li>{% endfor %}</ul>{% endif %}
+<h2>Products in {{ category.name }}</h2>
+<ul>
+{% for product in products %}
+<li>
+  <a href="{{ product.url_path }}"><strong>{{ product.name }}</strong></a>
+  — ₦{{ product.effective_price }}
+  {% if product.on_sale %}(was ₦{{ product.regular_price }}){% endif %}
+  {% if product.short_description %}<p>{{ product.short_description }}</p>{% endif %}
+</li>
+{% empty %}<li>No products in this category yet.</li>{% endfor %}
+</ul>
+</main>
+<footer><p>This page is a crawlable summary. The full interactive store loads via JavaScript from the frontend application.</p></footer>
+</body>
+</html>

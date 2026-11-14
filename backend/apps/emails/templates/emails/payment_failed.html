@@ -1,0 +1,7 @@
+{% extends "emails/base.html" %}
+{% block content %}
+<p>Hello {{ customer_name }},</p>
+<p>We could not confirm payment for order <strong>{{ reference }}</strong>.</p>
+<p>Reason: {{ reason|default:"Not provided by the payment provider." }}</p>
+<p>You can retry payment before {{ expires_at }}. No money has been captured for this failed attempt.</p>
+{% endblock %}

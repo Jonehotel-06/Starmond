@@ -1,0 +1,13 @@
+{% extends "emails/base.txt" %}
+{% block content %}Hello {{ customer_name }},
+
+Payment of NGN {{ amount }} for order {{ reference }} was successful. Receipt:
+
+{% for item in items %}- {{ item.name }}{% if item.variation %} ({{ item.variation }}){% endif %} x {{ item.quantity }} = NGN {{ item.line_total }}
+{% endfor %}
+Subtotal: NGN {{ subtotal }}
+Discount: NGN {{ discount }}
+Delivery: NGN {{ shipping_fee }}
+Total paid: NGN {{ total }}
+Payment reference: {{ payment_reference }}
+Estimated delivery: {{ estimate }}{% endblock %}

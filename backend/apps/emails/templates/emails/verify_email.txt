@@ -1,0 +1,7 @@
+{% extends "emails/base.txt" %}
+{% block content %}Hello {{ full_name }},
+
+Welcome to STARMOND TECHNOLOGY LIMITED. Confirm your email address:
+{{ verify_url }}
+
+This link expires in 3 days.{% endblock %}

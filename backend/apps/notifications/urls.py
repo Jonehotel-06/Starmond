@@ -1,12 +1,23 @@
-from django.urls import path
+from django.urls import include, path
+from rest_framework.routers import DefaultRouter
 
-from apps.notifications import views
+from .views import (
+    EnquiryCreateView,
+    MyNotificationsView,
+    NewsletterView,
+    StaffEnquiryViewSet,
+    StaffNewsletterViewSet,
+)
 
 app_name = "notifications"
 
+router = DefaultRouter()
+router.register("enquiries/admin", StaffEnquiryViewSet, basename="enquiry-staff")
+router.register("newsletter/admin", StaffNewsletterViewSet, basename="newsletter-staff")
+
 urlpatterns = [
-    path("", views.NotificationListView.as_view(), name="list"),
-    path("newsletter/", views.NewsletterSubscribeView.as_view(), name="newsletter"),
-    path("enquiries/", views.EnquiryCreateView.as_view(), name="enquiry"),
-    path("admin/enquiries/", views.StaffEnquiryListView.as_view(), name="staff-enquiries"),
+    path("mine/", MyNotificationsView.as_view(), name="my-notifications"),
+    path("newsletter/", NewsletterView.as_view(), name="newsletter"),
+    path("enquiries/", EnquiryCreateView.as_view(), name="enquiry-create"),
+    path("", include(router.urls)),
 ]

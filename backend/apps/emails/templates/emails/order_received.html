@@ -1,0 +1,7 @@
+{% extends "emails/base.html" %}
+{% block content %}
+<p>Hello {{ customer_name }},</p>
+<p>We received your order <strong>{{ reference }}</strong>. It is currently awaiting payment.</p>
+<p>Total: <strong>₦{{ total }}</strong></p>
+<p style="color:#667085;font-size:13px;">If payment is not completed by {{ expires_at }}, reserved stock will be released and the order will expire.</p>
+{% endblock %}

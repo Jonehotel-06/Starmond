@@ -1,11 +1,12 @@
-from django.urls import path
+from django.urls import include, path
+from rest_framework.routers import DefaultRouter
 
-from apps.promotions import views
+from .views import PromotionValidateView, StaffPromotionViewSet
 
 app_name = "promotions"
 
-urlpatterns = [
-    path("validate/", views.PromotionValidateView.as_view(), name="validate"),
-    path("", views.PublicPromotionListView.as_view(), name="public-list"),
-    path("admin/", views.StaffPromotionView.as_view(), name="staff"),
-]
+router = DefaultRouter()
+router.register("validate", PromotionValidateView, basename="promotion-validate")
+router.register("", StaffPromotionViewSet, basename="promotion-staff")
+
+urlpatterns = [path("", include(router.urls))]

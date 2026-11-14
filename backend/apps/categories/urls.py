@@ -1,13 +1,17 @@
-from django.urls import path
+from django.urls import include, path
+from rest_framework.routers import SimpleRouter
 
-from apps.categories import admin_views, views
+from .views import PublicCategoryViewSet, StaffCategoryViewSet
 
 app_name = "categories"
 
+staff_router = SimpleRouter()
+staff_router.register("admin", StaffCategoryViewSet, basename="category-staff")
+
+public_router = SimpleRouter()
+public_router.register("", PublicCategoryViewSet, basename="category-public")
+
 urlpatterns = [
-    path("", views.CategoryListView.as_view(), name="list"),
-    path("tree/", views.CategoryTreeView.as_view(), name="tree"),
-    path("admin/", admin_views.StaffCategoryView.as_view(), name="admin-list"),
-    path("admin/<uuid:category_id>/", admin_views.StaffCategoryDetailView.as_view(), name="admin-detail"),
-    path("<str:slug>/", views.CategoryDetailView.as_view(), name="detail"),
+    path("", include(staff_router.urls)),
+    path("", include(public_router.urls)),
 ]

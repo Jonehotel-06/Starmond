@@ -1,90 +1,111 @@
-"""Saved addresses and wishlist — strictly scoped to the authenticated customer."""
-from __future__ import annotations
-
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
+from rest_framework.generics import RetrieveUpdateAPIView
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 
-from apps.core.exceptions import ConflictError, NotFound
-from apps.core.pagination import StandardResultsSetPagination
-from apps.core.views import BaseAPIView
-from apps.customers.models import Address, Wishlist, WishlistItem
-from apps.customers.serializers import AddressSerializer, WishlistItemSerializer
-from apps.products.models import Product, ProductVariation
+from .models import Address, CustomerProfile, Wishlist, WishlistItem
+from .serializers import (
+    AddressSerializer,
+    CustomerProfileSerializer,
+    WishlistAddSerializer,
+    WishlistItemSerializer,
+)
 
 
-class AddressListCreateView(BaseAPIView):
+class ProfileView(RetrieveUpdateAPIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = CustomerProfileSerializer
 
-    def get(self, request):
-        rows = Address.objects.filter(user=request.user)
-        return self.ok(AddressSerializer(rows, many=True).data)
+    def get_object(self):
+        profile, _ = CustomerProfile.objects.get_or_create(user=self.request.user)
+        return profile
 
-    def post(self, request):
-        serializer = AddressSerializer(data=request.data)
+
+class AddressViewSet(viewsets.ModelViewSet):
+    """Customers manage ONLY their own addresses (enforced server-side)."""
+    permission_classes = [IsAuthenticated]
+    serializer_class = AddressSerializer
+
+    def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False) or not getattr(self.request, "user", None) or not self.request.user.is_authenticated:
+            return Address.objects.none()
+        return Address.objects.filter(customer=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(customer=self.request.user)
+
+    def list(self, request, *args, **kwargs):
+        data = self.get_serializer(self.get_queryset(), many=True).data
+        return Response({"status": "success", "data": data})
+
+    def retrieve(self, request, *args, **kwargs):
+        return Response({"status": "success", "data": self.get_serializer(self.get_object()).data})
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        address = serializer.save(user=request.user)
-        if not Address.objects.filter(user=request.user).exclude(pk=address.pk).exists():
-            address.is_default = True
-            address.save(update_fields=["is_default"])
-        return self.created(AddressSerializer(address).data, message="Address saved.")
+        self.perform_create(serializer)
+        return Response({"status": "success", "data": serializer.data}, status=status.HTTP_201_CREATED)
 
-
-class AddressDetailView(BaseAPIView):
-    permission_classes = [IsAuthenticated]
-
-    def _get(self, request, address_id):
-        address = Address.objects.filter(pk=address_id, user=request.user).first()
-        if address is None:
-            raise NotFound("Address not found.")
-        return address
-
-    def get(self, request, address_id):
-        return self.ok(AddressSerializer(self._get(request, address_id)).data)
-
-    def patch(self, request, address_id):
-        address = self._get(request, address_id)
-        serializer = AddressSerializer(address, data=request.data, partial=True)
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return self.ok(AddressSerializer(address).data, message="Address updated.")
+        return Response({"status": "success", "data": serializer.data})
 
-    def delete(self, request, address_id):
-        address = self._get(request, address_id)
-        address.delete()
-        return self.ok(message="Address removed.")
+    def destroy(self, request, *args, **kwargs):
+        self.get_object().delete()
+        return Response({"status": "success", "message": "Address deleted."})
 
 
-class WishlistView(BaseAPIView):
+from drf_spectacular.utils import OpenApiTypes, extend_schema, extend_schema_view
+
+@extend_schema_view(
+    list=extend_schema(tags=["customers"], responses=OpenApiTypes.OBJECT),
+    create=extend_schema(tags=["customers"], request=WishlistAddSerializer, responses=OpenApiTypes.OBJECT),
+    remove=extend_schema(tags=["customers"], request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT),
+    move_to_cart=extend_schema(tags=["customers"], request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT))
+class WishlistViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
-        wishlist, _ = Wishlist.objects.get_or_create(user=request.user)
-        items = wishlist.items.select_related("product", "variation").order_by("-created_at")
-        paginator = StandardResultsSetPagination()
-        page = paginator.paginate_queryset(items, request, view=self)
-        return paginator.get_paginated_response(WishlistItemSerializer(page, many=True).data)
+    def _wishlist(self, request):
+        wl, _ = Wishlist.objects.get_or_create(customer=request.user)
+        return wl
 
-    def post(self, request):
-        wishlist, _ = Wishlist.objects.get_or_create(user=request.user)
-        product = Product.objects.public().filter(pk=request.data.get("product_id")).first()
-        if product is None:
-            raise NotFound("Product not found.")
-        variation = None
-        if request.data.get("variation_id"):
-            variation = ProductVariation.objects.filter(
-                pk=request.data["variation_id"], product=product
-            ).first()
-        item, created = WishlistItem.objects.get_or_create(
-            wishlist=wishlist, product=product, defaults={"variation": variation}
+    def list(self, request):
+        wl = self._wishlist(request)
+        items = WishlistItem.objects.filter(wishlist=wl).select_related("product__category")
+        return Response({"status": "success", "data": WishlistItemSerializer(items, many=True).data})
+
+    def create(self, request):
+        serializer = WishlistAddSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        wl = self._wishlist(request)
+        item, created = WishlistItem.objects.get_or_create(wishlist=wl, product=serializer.validated_data["product"])
+        return Response(
+            {"status": "success", "message": "Added." if created else "Already in wishlist.", "data": WishlistItemSerializer(item).data},
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
-        if not created:
-            return self.ok(WishlistItemSerializer(item).data, message="Already in your wishlist.")
-        return self.created(WishlistItemSerializer(item).data, message="Added to your wishlist.")
 
-    def delete(self, request):
-        item_id = request.data.get("item_id") or request.query_params.get("item_id")
-        deleted, _ = WishlistItem.objects.filter(
-            pk=item_id, wishlist__user=request.user
-        ).delete()
-        if not deleted:
-            raise NotFound("That item is not in your wishlist.")
-        return self.ok(message="Removed from your wishlist.")
+    @action(detail=False, methods=["post"], url_path="remove")
+    def remove(self, request):
+        product_id = request.data.get("product")
+        wl = self._wishlist(request)
+        WishlistItem.objects.filter(wishlist=wl, product_id=product_id).delete()
+        return Response({"status": "success", "message": "Removed from wishlist."})
+
+    @action(detail=False, methods=["post"], url_path="move-to-cart")
+    def move_to_cart(self, request):
+        from services.cart_service import CartService
+        product_id = request.data.get("product")
+        wl = self._wishlist(request)
+        item = WishlistItem.objects.filter(wishlist=wl, product_id=product_id).select_related("product").first()
+        if not item:
+            return Response({"status": "error", "error": {"code": "not_found", "message": "Wishlist item not found.", "fields": None}}, status=404)
+        cart = CartService.get_or_create_cart(request)
+        CartService.add_item(cart, item.product, None, 1)
+        item.delete()
+        return Response({"status": "success", "message": "Moved to cart."})

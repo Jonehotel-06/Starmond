@@ -1,36 +1,14 @@
-# Python
 __pycache__/
 *.py[cod]
-*.so
-.Python
-venv/
-.venv/
-env/
-*.egg-info/
-
-# Django
-*.log
-db.sqlite3
-db.sqlite3-journal
-/staticfiles/
-/media/
-local_settings.py
-
-# Environment — never commit real secrets
 .env
-.env.*
+*.env
 !.env.example
-!.env.production.example
-
-# Testing / tooling
-.pytest_cache/
+db.sqlite3
+media/
+staticfiles/
 .coverage
 htmlcov/
-.mypy_cache/
-.ruff_cache/
-
-# OS / editors
+.venv/
+venv/
+*.log
 .DS_Store
-Thumbs.db
-.idea/
-.vscode/

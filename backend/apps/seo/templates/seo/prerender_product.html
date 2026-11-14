@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ meta.title }}</title>
+<meta name="description" content="{{ meta.description }}">
+<meta name="robots" content="{{ meta.robots }}">
+<link rel="canonical" href="{{ meta.canonical_url }}">
+<meta property="og:site_name" content="{{ meta.og.site_name }}">
+<meta property="og:title" content="{{ meta.og.title }}">
+<meta property="og:description" content="{{ meta.og.description }}">
+<meta property="og:type" content="product">
+{% if meta.og.image %}<meta property="og:image" content="{{ meta.og.image }}">{% endif %}
+<script type="application/ld+json">{{ product_json|safe }}</script>
+<script type="application/ld+json">{{ breadcrumb_json|safe }}</script>
+</head>
+<body>
+<header><strong>STARMOND TECHNOLOGY LIMITED</strong> — <a href="/">Home</a></header>
+<nav aria-label="Breadcrumb"><ol>{% for crumb in breadcrumbs %}<li><a href="{{ crumb.url_path }}">{{ crumb.name }}</a></li>{% endfor %}</ol></nav>
+<main>
+<h1>{{ product.name }}</h1>
+<p>SKU: {{ product.sku }}{% if product.brand %} · Brand: {{ product.brand }}{% endif %} · Category: <a href="{{ product.category.url_path }}">{{ product.category.name }}</a></p>
+{% if main_image %}<img src="{{ main_image }}" alt="{{ product.name }}" width="480">{% endif %}
+<p><strong>Price: ₦{{ product.effective_price }}</strong>{% if product.on_sale %} <s>₦{{ product.regular_price }}</s>{% endif %}</p>
+<p>{% if product.is_in_stock %}In stock{% else %}Currently out of stock{% endif %}</p>
+{% if product.short_description %}<p>{{ product.short_description }}</p>{% endif %}
+{% if product.description %}<div>{{ product.description|linebreaks }}</div>{% endif %}
+{% if variations %}<h2>Available options</h2><ul>{% for v in variations %}<li>{{ v.display_name }} — ₦{{ v.effective_price }}</li>{% endfor %}</ul>{% endif %}
+{% if specifications %}<h2>Specifications</h2><table>{% for key, value in specifications.items %}<tr><th>{{ key }}</th><td>{{ value }}</td></tr>{% endfor %}</table>{% endif %}
+{% if rating_summary.count %}<p>Rated {{ rating_summary.average }}/5 from {{ rating_summary.count }} verified customer review(s).</p>{% endif %}
+</main>
+<footer><p>This page is a crawlable summary. The full interactive store loads via JavaScript from the frontend application.</p></footer>
+</body>
+</html>

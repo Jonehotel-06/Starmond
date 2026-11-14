@@ -1,0 +1,7 @@
+{% extends "emails/base.html" %}
+{% block content %}
+<p>Hello {{ customer_name }},</p>
+<p>Your order <strong>{{ reference }}</strong> is now: <strong>{{ status_label }}</strong>.</p>
+{% if tracking %}<p>Tracking reference: {{ tracking }}</p>{% endif %}
+{% if note %}<p>{{ note }}</p>{% endif %}
+{% endblock %}

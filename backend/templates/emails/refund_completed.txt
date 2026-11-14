@@ -1,8 +1,0 @@
-Hello {{ recipient_name }},
-
-We have processed a refund of NGN {{ amount }} for order {{ order_number }}.
-Reference: {{ refund.refund_number }}
-
-Depending on your bank, funds can take 5-10 business days to appear.
-
-{{ business_name }}

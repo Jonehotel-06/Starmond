@@ -1,153 +1,140 @@
-"""Payment endpoints: initialise, verify, and the signed Paystack webhook."""
-from __future__ import annotations
-
+import json
 import logging
 
-from django.conf import settings
-from django.http import HttpResponse, JsonResponse
 from django.utils.decorators import method_decorator
-from django.views import View
 from django.views.decorators.csrf import csrf_exempt
-from rest_framework import serializers
+from rest_framework import mixins, viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.throttling import ScopedRateThrottle
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
-from apps.core.exceptions import NotFound, PermissionDeniedError, ValidationError
-from apps.core.views import BaseAPIView, client_ip
+from apps.audit.services import AuditService
+from apps.core.constants import Perm
+from apps.core.exceptions import ServiceError
+from apps.core.permissions import IsStaffWithPermission
+from apps.core.throttles import WebhookThrottle
 from apps.orders.models import Order
-from apps.orders.services import OrderService
-from apps.payments.models import PaymentWebhookEvent
-from apps.payments.paystack import PaystackService
-from apps.payments.services import PaymentService
 
-logger = logging.getLogger("payments.views")
+from .models import Payment
+from .paystack import PaystackService
+from .serializers import (
+    PaymentInitializeSerializer,
+    PaymentSerializer,
+    PaymentVerifySerializer,
+)
+from .services import PaymentService
 
-MAX_WEBHOOK_BYTES = 256 * 1024
-
-
-class InitializeSerializer(serializers.Serializer):
-    order_number = serializers.CharField(max_length=32)
-    guest_token = serializers.CharField(required=False, allow_blank=True)
-    channel_hint = serializers.CharField(required=False, allow_blank=True, max_length=40)
+logger = logging.getLogger("starmond.payments")
 
 
-class VerifySerializer(serializers.Serializer):
-    reference = serializers.CharField(max_length=100)
+from drf_spectacular.utils import OpenApiTypes, extend_schema
 
-
-class PaymentInitializeView(BaseAPIView):
+@extend_schema(tags=["payments"], request=PaymentInitializeSerializer, responses=OpenApiTypes.OBJECT)
+class PaystackInitializeView(APIView):
+    """POST /api/payments/paystack/initialize/ — backend creates the Paystack
+    transaction and returns the authorization URL. The secret key is never
+    exposed to the client."""
     permission_classes = [AllowAny]
-    throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "checkout"
 
     def post(self, request):
-        serializer = InitializeSerializer(data=request.data)
+        serializer = PaymentInitializeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
-
-        order = Order.objects.filter(order_number=data["order_number"]).first()
-        if order is None:
-            raise NotFound("Order not found.")
-
-        # Ownership: the signed-in customer, or a guest holding the order token.
-        if order.customer_id:
-            if not request.user.is_authenticated or request.user.pk != order.customer_id:
-                raise PermissionDeniedError("You cannot pay for this order.")
-        else:
-            token = data.get("guest_token") or request.META.get("HTTP_X_ORDER_TOKEN", "")
-            if not order.verify_guest_token(token):
-                raise PermissionDeniedError("You cannot pay for this order.")
-
-        payload = PaymentService.initialize_order_payment(
-            order, actor=request.user if request.user.is_authenticated else None,
-            ip=client_ip(request), channel_hint=data.get("channel_hint", ""),
-        )
-        return self.ok(payload, message="Payment initialised.")
+        order = Order.objects.filter(reference=serializer.validated_data["order_reference"].upper()).first()
+        if not order:
+            raise ServiceError("Order not found.", code="order_not_found", status_code=404)
+        requester = request.user if request.user.is_authenticated else None
+        payment = PaymentService.initialize_for_order(
+            order, requester=requester, guest_token=serializer.validated_data.get("guest_token"))
+        return Response({"status": "success", "data": {
+            "payment_reference": payment.reference,
+            "provider_reference": payment.provider_reference,
+            "authorization_url": payment.authorization_url,
+            "access_code": payment.access_code,
+            "amount": str(payment.amount),
+            "currency": payment.currency,
+            "order_reference": order.reference,
+        }})
 
 
-class PaymentVerifyView(BaseAPIView):
-    """Client return handler. Verification still happens server-side at Paystack."""
-
+@extend_schema(tags=["payments"], request=PaymentVerifySerializer, responses=OpenApiTypes.OBJECT)
+class PaystackVerifyView(APIView):
+    """POST /api/payments/paystack/verify/ — the backend independently asks
+    Paystack for the transaction result. Redirects are NEVER trusted."""
     permission_classes = [AllowAny]
-    throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "checkout"
-
-    def get(self, request):
-        reference = request.query_params.get("reference", "")
-        if not reference:
-            raise ValidationError("A payment reference is required.")
-        payment = PaymentService.verify_payment(
-            reference, actor=request.user if request.user.is_authenticated else None,
-            source="client_return",
-        )
-        return self.ok(PaymentService.public_payment_status(payment.order), message="Payment verified.")
 
     def post(self, request):
-        serializer = VerifySerializer(data=request.data)
+        serializer = PaymentVerifySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        payment = PaymentService.verify_payment(
+        requester = request.user if request.user.is_authenticated else None
+        payment = PaymentService.verify_and_finalize(
             serializer.validated_data["reference"],
-            actor=request.user if request.user.is_authenticated else None,
-            source="client_return",
-        )
-        return self.ok(PaymentService.public_payment_status(payment.order), message="Payment verified.")
-
-
-class PaymentConfigView(BaseAPIView):
-    """The only Paystack information the browser is allowed to receive."""
-
-    permission_classes = [AllowAny]
-
-    def get(self, request):
-        return self.ok(PaystackService.public_config())
+            requester=requester, guest_token=serializer.validated_data.get("guest_token"))
+        from services.notification_service import NotificationService
+        if payment.status == Payment.Status.SUCCESSFUL:
+            NotificationService.payment_successful(payment.order, payment)  # dedup inside
+        elif payment.status == Payment.Status.FAILED:
+            NotificationService.payment_failed(payment.order, payment)
+        return Response({"status": "success", "data": {
+            "payment_status": payment.status,
+            "order_status": payment.order.status,
+            "order_payment_status": payment.order.payment_status,
+            "amount": str(payment.amount),
+            "currency": payment.currency,
+            "verified_at": payment.verified_at,
+            "failure_reason": payment.failure_reason or None,
+            "order_reference": payment.order.reference,
+        }})
 
 
 @method_decorator(csrf_exempt, name="dispatch")
-class PaystackWebhookView(View):
-    """
-    Paystack webhook receiver.
+@extend_schema(tags=["payments"], request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT,
+    description="Paystack webhook receiver. Signature verified with PAYSTACK_WEBHOOK_SECRET (HMAC SHA-512). Configure this URL in the Paystack dashboard.")
+class PaystackWebhookView(APIView):
+    """POST /api/payments/paystack/webhook/ — configured in the Paystack
+    dashboard. Signature verified with PAYSTACK_WEBHOOK_SECRET (HMAC SHA-512).
+    Always answers 200 quickly; events are stored and processed idempotently."""
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [WebhookThrottle]
 
-    Order of operations is deliberate:
-    1. read the raw body,
-    2. verify the HMAC signature,
-    3. store the event once (unique event key),
-    4. re-verify the transaction with Paystack before any money is recognised.
-
-    Always answers 200 for accepted/rejected events so Paystack stops retrying
-    for reasons that will never change (bad signature), while genuine processing
-    failures return 200 too and are recorded for reconciliation.
-    """
-
-    def post(self, request, *args, **kwargs):
-        raw_body = request.body or b""
-        if len(raw_body) > MAX_WEBHOOK_BYTES:
-            logger.warning("Oversized webhook body rejected (%s bytes)", len(raw_body))
-            return JsonResponse({"status": "rejected", "reason": "payload_too_large"}, status=413)
-
-        signature = request.META.get("HTTP_X_PAYSTACK_SIGNATURE", "")
-        valid = PaystackService.verify_webhook_signature(raw_body, signature)
-
+    def post(self, request):
+        raw_body = request.body
+        signature = request.headers.get("x-paystack-signature", "")
+        if not PaystackService.verify_webhook_signature(raw_body, signature):
+            logger.warning("Paystack webhook rejected: invalid signature from %s",
+                           request.META.get("REMOTE_ADDR"))
+            return Response({"status": "error", "error": {"code": "invalid_signature",
+                             "message": "Invalid webhook signature.", "fields": None}}, status=400)
         try:
-            payload = PaystackService.parse_webhook(raw_body)
-        except ValidationError:
-            logger.warning("Unparseable webhook body")
-            return JsonResponse({"status": "rejected", "reason": "invalid_payload"}, status=400)
+            event_data = json.loads(raw_body.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return Response({"status": "error", "error": {"code": "invalid_payload",
+                             "message": "Malformed webhook body.", "fields": None}}, status=400)
+        try:
+            PaymentService.handle_webhook_event(event_data)
+        except Exception:
+            logger.exception("Webhook handling error (event stored for replay)")
+        return Response({"status": "success", "message": "Event received."})
 
-        if not valid:
-            event = PaymentService.record_webhook(
-                payload=payload, signature=signature, valid_signature=False,
-                source_ip=client_ip(request),
-            )
-            event.mark(PaymentWebhookEvent.ProcessingStatus.REJECTED, "Invalid signature.")
-            logger.warning("Webhook rejected: invalid signature (event=%s)", payload.get("event"))
-            return JsonResponse({"status": "rejected", "reason": "invalid_signature"}, status=401)
 
-        event = PaymentService.record_webhook(
-            payload=payload, signature=signature, valid_signature=True,
-            source_ip=client_ip(request),
-        )
-        if event.processing_status == PaymentWebhookEvent.ProcessingStatus.DUPLICATE:
-            return JsonResponse({"status": "duplicate", "event_key": event.event_key})
+@extend_schema(tags=["payments"], responses=PaymentSerializer(many=True))
+class CustomerPaymentListView(APIView):
+    """Authenticated customers see ONLY their own payments."""
+    permission_classes = [IsAuthenticated]
 
-        result = PaymentService.process_webhook_event(event)
-        return JsonResponse({"status": "ok", **result})
+    def get(self, request):
+        qs = Payment.objects.filter(order__customer=request.user).select_related("order").order_by("-created_at")
+        from apps.core.pagination import StandardPagination
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(qs, request)
+        return paginator.get_paginated_response(PaymentSerializer(page, many=True).data)
+
+
+class StaffPaymentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    permission_classes = [IsStaffWithPermission]
+    permission_codename = Perm.FINANCE_VIEW
+    serializer_class = PaymentSerializer
+    queryset = Payment.objects.select_related("order").all()
+    filterset_fields = ["status", "provider", "order"]
+    search_fields = ["reference", "provider_reference", "order__reference"]
+    ordering = ["-created_at"]

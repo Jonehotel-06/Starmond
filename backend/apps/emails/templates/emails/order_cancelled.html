@@ -1,0 +1,6 @@
+{% extends "emails/base.html" %}
+{% block content %}
+<p>Hello {{ customer_name }},</p>
+<p>Order <strong>{{ reference }}</strong> has been cancelled. Any reserved stock has been released.</p>
+{% if reason %}<p>Reason: {{ reason }}</p>{% endif %}
+{% endblock %}

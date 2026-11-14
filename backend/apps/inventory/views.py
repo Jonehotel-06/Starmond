@@ -1,175 +1,105 @@
-"""Staff inventory management: stock in, adjustments, movement history."""
-from __future__ import annotations
+import django_filters as filters
+from rest_framework import mixins, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
 
-from apps.core.permissions import IsStaff
+from apps.audit.services import AuditService
+from apps.core.constants import Perm
+from apps.core.permissions import IsStaffWithPermission
 
-from apps.core.exceptions import NotFound
-from apps.core.pagination import StandardResultsSetPagination
-from apps.core.permissions import RequiresPermission
-from apps.core.views import BaseAPIView
-from apps.inventory.models import Inventory, InventoryMovement
-from apps.inventory.services import InventoryService
-from apps.products.models import Product, ProductVariation
-
-
-def _serialise(inv: Inventory) -> dict:
-    return {
-        "id": str(inv.pk),
-        "product_id": str(inv.product_id),
-        "product_name": inv.product.name,
-        "variation_id": str(inv.variation_id) if inv.variation_id else None,
-        "sku": inv.variation.sku if inv.variation_id else inv.product.sku,
-        "quantity_on_hand": inv.quantity_on_hand,
-        "quantity_reserved": inv.quantity_reserved,
-        "quantity_sold": inv.quantity_sold,
-        "quantity_returned": inv.quantity_returned,
-        "available_quantity": inv.available_quantity,
-        "low_stock_threshold": inv.low_stock_threshold,
-        "stock_status": inv.stock_status,
-        "track_inventory": inv.track_inventory,
-        "allow_backorder": inv.allow_backorder,
-    }
+from .models import Inventory, InventoryMovement
+from .serializers import (
+    InventoryMovementSerializer,
+    InventorySerializer,
+    StockAdjustSerializer,
+    StockReceiveSerializer,
+)
+from .services import InventoryService
 
 
-class InventoryListView(BaseAPIView):
-    permission_classes = [IsStaff, RequiresPermission.of("inventory.view_inventory")]
+class InventoryFilter(filters.FilterSet):
+    product = filters.NumberFilter(field_name="product_id")
+    low_stock = filters.BooleanFilter(method="filter_low")
+    out_of_stock = filters.BooleanFilter(method="filter_out")
+    search = filters.CharFilter(method="filter_search")
 
-    def get(self, request):
-        queryset = Inventory.objects.select_related("product", "variation").order_by(
-            "quantity_on_hand"
-        )
-        if request.query_params.get("low") in {"1", "true"}:
-            from django.db.models import F
+    class Meta:
+        model = Inventory
+        fields = ["product", "low_stock", "out_of_stock"]
 
-            queryset = queryset.filter(quantity_on_hand__lte=F("low_stock_threshold"))
-        if request.query_params.get("q"):
-            term = request.query_params["q"]
-            from django.db.models import Q
+    def filter_search(self, qs, name, value):
+        from django.db.models import Q
+        return qs.filter(Q(product__name__icontains=value) | Q(product__sku__icontains=value) | Q(variation__sku__icontains=value))
 
-            queryset = queryset.filter(
-                Q(product__name__icontains=term) | Q(product__sku__icontains=term)
-                | Q(variation__sku__icontains=term)
-            )
-        paginator = StandardResultsSetPagination()
-        page = paginator.paginate_queryset(queryset, request, view=self)
-        return paginator.get_paginated_response([_serialise(row) for row in page])
+    def _computed(self, qs):
+        # available = on_hand - reserved (evaluate in SQL for filtering)
+        from django.db.models import F
+        return qs.annotate(available_qty=F("on_hand") - F("reserved"))
 
+    def filter_low(self, qs, name, value):
+        from django.db.models import F
+        qs = self._computed(qs)
+        if not value:
+            return qs
+        from django.db.models.functions import Coalesce
+        threshold = Coalesce("low_stock_threshold", "product__low_stock_threshold")
+        return qs.filter(available_qty__gt=0, available_qty__lte=threshold)
 
-class InventoryDetailView(BaseAPIView):
-    permission_classes = [IsStaff, RequiresPermission.of("inventory.view_inventory")]
-
-    def get(self, request, inventory_id: str):
-        inv = Inventory.objects.select_related("product", "variation").filter(
-            pk=inventory_id
-        ).first()
-        if inv is None:
-            raise NotFound("Inventory record not found.")
-        payload = _serialise(inv)
-        payload["reconcile"] = InventoryService.reconcile(inv)
-        payload["movements"] = [
-            {
-                "type": m.movement_type,
-                "quantity": m.quantity,
-                "on_hand_after": m.on_hand_after,
-                "reserved_after": m.reserved_after,
-                "reason": m.reason,
-                "created_at": m.created_at.isoformat(),
-            }
-            for m in inv.movements.all()[:50]
-        ]
-        return self.ok(payload)
+    def filter_out(self, qs, name, value):
+        qs = self._computed(qs)
+        return qs.filter(available_qty__lte=0) if value else qs.filter(available_qty__gt=0)
 
 
-class StockReceiveView(BaseAPIView):
-    permission_classes = [IsStaff, RequiresPermission.of("inventory.change_inventory")]
+class InventoryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    permission_classes = [IsStaffWithPermission]
+    permission_codename = Perm.INVENTORY_VIEW
+    serializer_class = InventorySerializer
+    queryset = Inventory.objects.select_related("product", "variation").all()
+    filterset_class = InventoryFilter
 
-    def post(self, request):
-        inventory = Inventory.objects.filter(pk=request.data.get("inventory_id")).first()
-        if inventory is None:
-            raise NotFound("Inventory record not found.")
-        updated = InventoryService.receive_stock(
-            inventory=inventory,
-            quantity=request.data.get("quantity"),
-            reason=request.data.get("reason", "Stock received"),
-            actor=request.user,
-        )
-        return self.ok(_serialise(updated), message="Stock received.")
+    def _ensure_manage(self, request):
+        from apps.core.permissions import user_has_permission
+        if not user_has_permission(request.user, Perm.INVENTORY_MANAGE):
+            from apps.core.exceptions import ServiceError
+            raise ServiceError("You lack the inventory.manage permission.", code="permission_denied", status_code=403)
 
+    @action(detail=True, methods=["post"], url_path="adjust")
+    def adjust(self, request, pk=None):
+        self._ensure_manage(request)
+        inventory = self.get_object()
+        serializer = StockAdjustSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        inv = InventoryService.adjust(
+            inventory, serializer.validated_data["delta"], performed_by=request.user,
+            reason=serializer.validated_data["reason"])
+        AuditService.log(request.user, "inventory.adjust", "Inventory", inv.pk,
+                         {"delta": serializer.validated_data["delta"], "reason": serializer.validated_data["reason"]}, request=request)
+        return Response({"status": "success", "data": InventorySerializer(inv).data})
 
-class StockAdjustView(BaseAPIView):
-    permission_classes = [IsStaff, RequiresPermission.of("inventory.change_inventory")]
+    @action(detail=True, methods=["post"], url_path="receive")
+    def receive(self, request, pk=None):
+        self._ensure_manage(request)
+        inventory = self.get_object()
+        serializer = StockReceiveSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        inv = InventoryService.receive_stock(
+            inventory, serializer.validated_data["quantity"], performed_by=request.user,
+            reason=serializer.validated_data["reason"])
+        AuditService.log(request.user, "inventory.receive", "Inventory", inv.pk,
+                         {"quantity": serializer.validated_data["quantity"]}, request=request)
+        return Response({"status": "success", "data": InventorySerializer(inv).data})
 
-    def post(self, request):
-        inventory = Inventory.objects.filter(pk=request.data.get("inventory_id")).first()
-        if inventory is None:
-            raise NotFound("Inventory record not found.")
-        updated = InventoryService.adjust_stock(
-            inventory=inventory,
-            new_quantity=request.data.get("new_quantity"),
-            reason=request.data.get("reason", "Stock adjustment"),
-            actor=request.user,
-        )
-        return self.ok(_serialise(updated), message="Stock adjusted.")
-
-
-class StockWriteOffView(BaseAPIView):
-    permission_classes = [IsStaff, RequiresPermission.of("inventory.change_inventory")]
-
-    def post(self, request):
-        inventory = Inventory.objects.filter(pk=request.data.get("inventory_id")).first()
-        if inventory is None:
-            raise NotFound("Inventory record not found.")
-        updated = InventoryService.write_off(
-            inventory=inventory,
-            quantity=request.data.get("quantity"),
-            reason=request.data.get("reason", "Damage"),
-            actor=request.user,
-        )
-        return self.ok(_serialise(updated), message="Stock written off.")
+    @action(detail=True, methods=["get"], url_path="movements")
+    def movements(self, request, pk=None):
+        inventory = self.get_object()
+        qs = inventory.movements.select_related("order", "performed_by").all()[:200]
+        return Response({"status": "success", "data": InventoryMovementSerializer(qs, many=True).data})
 
 
-class InventoryEnsureView(BaseAPIView):
-    """Creates the stock row for a product or variation that lacks one."""
-
-    permission_classes = [IsStaff, RequiresPermission.of("inventory.add_inventory")]
-
-    def post(self, request):
-        product = Product.objects.filter(pk=request.data.get("product_id")).first()
-        if product is None:
-            raise NotFound("Product not found.")
-        variation = None
-        if request.data.get("variation_id"):
-            variation = ProductVariation.objects.filter(
-                pk=request.data["variation_id"], product=product
-            ).first()
-        inventory = InventoryService.get_or_create_for(
-            product, variation, opening_quantity=int(request.data.get("opening_quantity", 0) or 0)
-        )
-        return self.created(_serialise(inventory), message="Inventory record ready.")
-
-
-class MovementHistoryView(BaseAPIView):
-    permission_classes = [IsStaff, RequiresPermission.of("inventory.view_inventorymovement")]
-
-    def get(self, request):
-        queryset = InventoryMovement.objects.select_related(
-            "inventory", "inventory__product"
-        ).order_by("-created_at")
-        if request.query_params.get("type"):
-            queryset = queryset.filter(movement_type=request.query_params["type"])
-        paginator = StandardResultsSetPagination()
-        page = paginator.paginate_queryset(queryset, request, view=self)
-        return paginator.get_paginated_response([
-            {
-                "id": str(m.pk),
-                "type": m.movement_type,
-                "quantity": m.quantity,
-                "reserved_delta": m.reserved_delta,
-                "on_hand_after": m.on_hand_after,
-                "reserved_after": m.reserved_after,
-                "reason": m.reason,
-                "reference": m.reference_id,
-                "created_at": m.created_at.isoformat(),
-            }
-            for m in page
-        ])
+class InventoryMovementViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    permission_classes = [IsStaffWithPermission]
+    permission_codename = Perm.INVENTORY_VIEW
+    serializer_class = InventoryMovementSerializer
+    queryset = InventoryMovement.objects.select_related("product", "variation", "order", "performed_by").all()
+    filterset_fields = ["movement_type", "product"]
+    ordering = ["-created_at"]

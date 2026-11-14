@@ -1,0 +1,2 @@
+{% extends "emails/base.txt" %}
+{% block content %}Low stock alert: {{ product }} ({{ sku }}) has {{ available }} unit(s) remaining.{% endblock %}

@@ -1,0 +1,15 @@
+{% extends "emails/base.html" %}
+{% block content %}
+<p>Hello {{ customer_name }},</p>
+<p>Your payment of <strong>₦{{ amount }}</strong> for order <strong>{{ reference }}</strong> was successful. This email is your receipt.</p>
+<table role="presentation" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:14px;">
+{% for item in items %}<tr style="border-bottom:1px solid #eef0f3;">
+<td>{{ item.name }}{% if item.variation %} ({{ item.variation }}){% endif %} × {{ item.quantity }}</td>
+<td align="right">₦{{ item.line_total }}</td></tr>{% endfor %}
+<tr><td>Subtotal</td><td align="right">₦{{ subtotal }}</td></tr>
+{% if discount != "0.00" %}<tr><td>Discount</td><td align="right">-₦{{ discount }}</td></tr>{% endif %}
+<tr><td>Delivery ({{ shipping_method }})</td><td align="right">₦{{ shipping_fee }}</td></tr>
+<tr style="font-weight:bold;"><td>Total paid</td><td align="right">₦{{ total }}</td></tr>
+</table>
+<p>Payment reference: {{ payment_reference }}<br>Estimated delivery: {{ estimate }}</p>
+{% endblock %}

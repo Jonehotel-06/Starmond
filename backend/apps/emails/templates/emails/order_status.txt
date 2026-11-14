@@ -1,0 +1,3 @@
+{% extends "emails/base.txt" %}
+{% block content %}Hello {{ customer_name }},
+Order {{ reference }} status: {{ status_label }}.{% if tracking %} Tracking: {{ tracking }}.{% endif %}{% endblock %}

@@ -1,115 +1,80 @@
-"""CategoryService — tree operations and category lookups."""
-from __future__ import annotations
-
-from typing import Iterable
-
+from django.conf import settings
 from django.db import transaction
-from django.db.models import Q
 
-from apps.categories.models import Category
-from apps.core.exceptions import ConflictError, NotFound, ValidationError
-from apps.core.models import PublishableModel
-from apps.core.utils import unique_slug
+from apps.core.exceptions import ServiceError
+from apps.core.slugs import unique_slugify
+
+from .models import Category
 
 
 class CategoryService:
     @staticmethod
-    def get_public(slug_or_path: str) -> Category:
-        category = (
-            Category.objects.public()
-            .filter(Q(slug=slug_or_path) | Q(path=slug_or_path))
-            .first()
-        )
-        if category is None:
-            raise NotFound("Category not found.")
-        return category
-
-    @staticmethod
     @transaction.atomic
-    def create(*, name: str, parent: Category | None = None, **fields) -> Category:
-        name = (name or "").strip()
-        if not name:
-            raise ValidationError("Category name is required.")
-        if parent is not None and Category.objects.filter(parent=parent, name__iexact=name).exists():
-            raise ConflictError(f"A subcategory named '{name}' already exists here.")
-        slug = fields.pop("slug", None) or unique_slug(Category, name)
-        category = Category(name=name, parent=parent, slug=slug, **fields)
-        category.full_clean(exclude=["path", "depth"])
-        category.save()
-        return category
-
-    @staticmethod
-    @transaction.atomic
-    def update(category: Category, **fields) -> Category:
-        allowed = {
-            "name", "slug", "description", "short_description", "image", "icon",
-            "position", "is_active", "is_featured", "status", "meta_title",
-            "meta_description", "meta_keywords", "canonical_url", "parent",
-        }
-        unknown = set(fields) - allowed
-        if unknown:
-            raise ValidationError(f"Unsupported field(s): {', '.join(sorted(unknown))}.")
+    def create_or_update(category, *, name, slug=None, parent=None, **fields):
+        """Validate hierarchy, uniqueness and depth, then persist."""
+        if parent is not None:
+            if not parent.is_active and not getattr(category, "pk", None):
+                raise ServiceError("Cannot create a subcategory under an inactive parent.", code="inactive_parent")
+            if category.pk and parent.pk == category.pk:
+                raise ServiceError("A category cannot be its own parent.", code="invalid_parent")
+            if category.pk and parent in CategoryService.descendants(category):
+                raise ServiceError("Cannot move a category under its own descendant.", code="cycle_detected")
+            new_depth = parent.depth + 1
+        else:
+            new_depth = 0
+        if new_depth + 1 > settings.MAX_CATEGORY_DEPTH:
+            raise ServiceError(
+                f"Maximum category nesting depth ({settings.MAX_CATEGORY_DEPTH}) exceeded.",
+                code="max_depth_exceeded",
+            )
+        if slug:
+            if Category.objects.filter(slug=slug).exclude(pk=getattr(category, "pk", None)).exists():
+                raise ServiceError("A category with this slug already exists.", code="duplicate_slug", status_code=409)
+        else:
+            slug = unique_slugify(category, name, queryset=Category.objects.all())
+        category.name = name
+        category.slug = slug
+        category.parent = parent
         for key, value in fields.items():
             setattr(category, key, value)
-        if category.status == PublishableModel.Status.PUBLISHED and not category.published_at:
-            from django.utils import timezone
-            category.published_at = timezone.now()
-        category.full_clean(exclude=["path", "depth"])
+        category.full_clean(exclude=["slug", "image", "banner_image", "og_image"])
         category.save()
         return category
 
     @staticmethod
+    def descendants(category):
+        result, stack = [], list(Category.objects.filter(parent=category))
+        while stack:
+            node = stack.pop()
+            result.append(node)
+            stack.extend(Category.objects.filter(parent=node))
+        return result
+
+    @staticmethod
     @transaction.atomic
-    def delete(category: Category) -> None:
-        if category.children.exists():
-            raise ConflictError("Move or delete subcategories before deleting this category.")
-        if category.products.exists():
-            raise ConflictError(
-                "This category still contains products. Reassign them before deleting the category."
+    def safe_delete(category):
+        """Block deletion when products or subcategories depend on it."""
+        product_count = category.products.count()
+        child_count = category.children.count()
+        if product_count or child_count:
+            raise ServiceError(
+                f"Cannot delete: {product_count} product(s) and {child_count} subcategory(ies) still linked. "
+                "Deactivate the category or move its contents first.",
+                code="category_in_use", status_code=409,
             )
         category.delete()
 
     @staticmethod
-    def tree(public_only: bool = True) -> list[dict]:
-        """Returns the full nested category tree in a single query."""
-        qs = Category.objects.all()
-        if public_only:
-            qs = qs.public()
-        nodes = list(qs.order_by("depth", "position", "name"))
-
-        serialised = {}
-        for node in nodes:
-            serialised[node.pk] = {
-                "id": str(node.id),
-                "name": node.name,
-                "slug": node.slug,
-                "path": node.path,
-                "depth": node.depth,
-                "status": node.status,
-                "is_featured": node.is_featured,
-                "image": node.image.url if node.image else None,
-                "description": node.short_description or node.description[:200],
-                "meta_title": node.meta_title or node.name,
-                "meta_description": node.meta_description,
-                "url": node.absolute_path,
-                "product_count": 0,
-                "children": [],
-            }
-
-        roots: list[dict] = []
-        for node in nodes:
-            item = serialised[node.pk]
-            parent = serialised.get(node.parent_id) if node.parent_id else None
-            if parent is not None:
-                parent["children"].append(item)
-            elif node.parent_id is None:
-                roots.append(item)
-        return roots
+    def deactivate_tree(category):
+        """Deactivate a category and all descendants in one operation."""
+        with transaction.atomic():
+            ids = [category.pk] + [c.pk for c in CategoryService.descendants(category)]
+            Category.objects.filter(pk__in=ids).update(is_active=False)
+        return len(ids)
 
     @staticmethod
-    def breadcrumb_for(category: Category) -> list[dict]:
-        return category.breadcrumb()
-
-    @staticmethod
-    def featured(limit: int = 12) -> Iterable[Category]:
-        return Category.objects.public().filter(is_featured=True)[:limit]
+    def reorder(pairs):
+        """pairs: list of {"id": int, "display_order": int}."""
+        with transaction.atomic():
+            for pair in pairs:
+                Category.objects.filter(pk=pair["id"]).update(display_order=pair["display_order"])

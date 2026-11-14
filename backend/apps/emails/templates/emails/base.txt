@@ -1,0 +1,5 @@
+STARMOND TECHNOLOGY LIMITED
+{% block content %}{% endblock %}
+--
+You are receiving this email because of your relationship with STARMOND TECHNOLOGY LIMITED.
+{{ frontend_url }}

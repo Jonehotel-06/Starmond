@@ -1,0 +1,5 @@
+{% extends "emails/base.html" %}
+{% block content %}
+<p>Hello {{ full_name }},</p><p>We received your enquiry and our team will respond to <strong>{{ email }}</strong> as soon as possible.</p>
+{% if message %}<blockquote style="border-left:3px solid #0b1f3a;margin:16px 0;padding:8px 16px;color:#475467;">{{ message }}</blockquote>{% endif %}
+{% endblock %}

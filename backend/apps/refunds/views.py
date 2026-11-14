@@ -1,109 +1,82 @@
-"""Customer refund requests and staff refund processing."""
-from __future__ import annotations
-
+from django.shortcuts import get_object_or_404
+from rest_framework import mixins, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.throttling import ScopedRateThrottle
+from rest_framework.response import Response
 
-from apps.core.exceptions import ValidationError
-from apps.core.pagination import StandardResultsSetPagination
-from apps.core.permissions import RequiresPermission
-from apps.core.views import BaseAPIView
-from apps.orders.services import OrderService
-from apps.refunds.models import Refund
-from apps.refunds.serializers import (
-    RefundDecisionSerializer, RefundRequestSerializer, RefundSerializer,
-)
-from apps.refunds.services import RefundService
+from apps.audit.services import AuditService
+from apps.core.constants import Perm
+from apps.core.exceptions import ServiceError
+from apps.core.permissions import IsStaffWithPermission
+from apps.orders.models import Order
+
+from .models import Refund
+from .serializers import RefundDecisionSerializer, RefundRequestSerializer, RefundSerializer
+from .services import RefundService
 
 
-class CustomerRefundRequestView(BaseAPIView):
+class CustomerRefundViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+    """Customers request refunds per the published policy and see only their own."""
     permission_classes = [IsAuthenticated]
-    throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "user"
+    serializer_class = RefundSerializer
 
-    def post(self, request):
+    def get_queryset(self):
+        return Refund.objects.filter(order__customer=self.request.user).select_related("order", "payment")
+
+    def create(self, request, *args, **kwargs):
         serializer = RefundRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
-        order = OrderService.get_customer_order(data["order_number"], request.user)
+        order = Order.objects.filter(reference=serializer.validated_data["order_reference"].upper(),
+                                     customer=request.user).first()
+        if not order:
+            raise ServiceError("Order not found for your account.", code="order_not_found", status_code=404)
         refund = RefundService.request_refund(
-            order=order,
-            reason_category=data["reason_category"],
-            customer_note=data.get("customer_note", ""),
-            items=data.get("items"),
-            amount=data.get("amount"),
-            requested_by=request.user,
-        )
-        return self.created(RefundSerializer(refund).data,
-                            message="Your refund request has been submitted for review.")
+            order, requester=request.user, reason=serializer.validated_data["reason"],
+            amount=serializer.validated_data.get("amount"), restock=serializer.validated_data.get("restock", False))
+        AuditService.log(request.user, "refund.request", "Refund", refund.pk,
+                         {"order": order.reference, "amount": str(refund.requested_amount)}, request=request)
+        return Response({"status": "success", "data": RefundSerializer(refund).data}, status=status.HTTP_201_CREATED)
 
 
-class CustomerRefundListView(BaseAPIView):
-    permission_classes = [IsAuthenticated]
+class StaffRefundViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    permission_classes = [IsStaffWithPermission]
+    permission_codename = Perm.FINANCE_VIEW
+    serializer_class = RefundSerializer
+    queryset = Refund.objects.select_related("order", "payment", "processed_by", "requested_by").all()
+    filterset_fields = ["status", "order"]
+    search_fields = ["reference", "order__reference"]
+    ordering = ["-created_at"]
 
-    def get(self, request):
-        queryset = Refund.objects.filter(order__customer=request.user).select_related("order")
-        if request.query_params.get("order"):
-            queryset = queryset.filter(order__order_number=request.query_params["order"])
-        paginator = StandardResultsSetPagination()
-        page = paginator.paginate_queryset(queryset, request, view=self)
-        return paginator.get_paginated_response(RefundSerializer(page, many=True).data)
+    def _ensure_manage(self, request):
+        from apps.core.permissions import user_has_permission
+        if not user_has_permission(request.user, Perm.REFUNDS_MANAGE):
+            raise ServiceError("You lack the refunds.manage permission.", code="permission_denied", status_code=403)
 
-
-class RefundEligibilityView(BaseAPIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request, order_number: str):
-        order = OrderService.get_customer_order(order_number, request.user)
-        return self.ok(RefundService.refundable_summary(order))
-
-
-class StaffRefundQueueView(BaseAPIView):
-    permission_classes = [RequiresPermission.of("refunds.change_refund")]
-
-    def get(self, request):
-        queryset = Refund.objects.select_related("order").order_by("-created_at")
-        if request.query_params.get("status"):
-            queryset = queryset.filter(status=request.query_params["status"])
-        paginator = StandardResultsSetPagination()
-        page = paginator.paginate_queryset(queryset, request, view=self)
-        return paginator.get_paginated_response(RefundSerializer(page, many=True).data)
-
-
-class StaffRefundActionView(BaseAPIView):
-    """approve | reject | submit | check — every action is audited."""
-
-    permission_classes = [RequiresPermission.of("refunds.change_refund")]
-
-    def post(self, request, refund_id: str, action: str):
-        refund = Refund.objects.filter(pk=refund_id).first()
-        if refund is None:
-            from apps.core.exceptions import NotFound
-
-            raise NotFound("Refund not found.")
-
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        self._ensure_manage(request)
+        refund = self.get_object()
         serializer = RefundDecisionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
+        refund = RefundService.approve(refund, request.user,
+                                       approved_amount=serializer.validated_data.get("approved_amount"),
+                                       notes=serializer.validated_data.get("notes", ""))
+        AuditService.log(request.user, "refund.approve", "Refund", refund.pk,
+                         {"amount": str(refund.approved_amount), "status": refund.status}, request=request)
+        return Response({"status": "success", "data": RefundSerializer(refund).data})
 
-        if action == "approve":
-            refund = RefundService.approve(
-                refund, actor=request.user, amount=data.get("amount"),
-                restock=data.get("restock", False), note=data.get("note", ""),
-            )
-            message = "Refund approved. Submit it to Paystack to return the money."
-        elif action == "reject":
-            if not data.get("reason"):
-                raise ValidationError("A rejection reason is required.")
-            refund = RefundService.reject(refund, actor=request.user, reason=data["reason"])
-            message = "Refund rejected."
-        elif action == "submit":
-            refund = RefundService.submit_to_provider(refund, actor=request.user)
-            message = "Refund submitted to Paystack. Awaiting provider confirmation."
-        elif action == "check":
-            refund = RefundService.check_provider_status(refund, actor=request.user)
-            message = f"Provider status: {refund.provider_status or 'unknown'}."
-        else:
-            raise ValidationError("Unknown refund action.")
+    @action(detail=True, methods=["post"])
+    def reject(self, request, pk=None):
+        self._ensure_manage(request)
+        refund = self.get_object()
+        serializer = RefundDecisionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        refund = RefundService.reject(refund, request.user, notes=serializer.validated_data.get("notes", ""))
+        AuditService.log(request.user, "refund.reject", "Refund", refund.pk, {}, request=request)
+        return Response({"status": "success", "data": RefundSerializer(refund).data})
 
-        return self.ok(RefundSerializer(refund).data, message=message)
+    @action(detail=True, methods=["post"], url_path="check-status")
+    def check_status(self, request, pk=None):
+        self._ensure_manage(request)
+        refund = RefundService.check_provider_status(self.get_object())
+        return Response({"status": "success", "data": RefundSerializer(refund).data})

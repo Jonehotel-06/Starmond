@@ -1,0 +1,2 @@
+{% extends "emails/base.txt" %}
+{% block content %}Hello {{ full_name }}, we received your enquiry and will respond to {{ email }} soon.{% endblock %}

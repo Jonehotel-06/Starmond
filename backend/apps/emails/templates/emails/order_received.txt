@@ -1,0 +1,6 @@
+{% extends "emails/base.txt" %}
+{% block content %}Hello {{ customer_name }},
+
+We received order {{ reference }} — awaiting payment.
+Total: NGN {{ total }}
+Pay before {{ expires_at }} or the order will expire.{% endblock %}

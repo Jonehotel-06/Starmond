@@ -1,13 +1,13 @@
-from django.urls import path
+from django.urls import include, path
+from rest_framework.routers import DefaultRouter
 
-from apps.shipping import views
+from .views import ShippingMethodViewSet, ShippingQuoteView, ShippingZoneViewSet
 
 app_name = "shipping"
 
-urlpatterns = [
-    path("states/", views.ShippingStatesView.as_view(), name="states"),
-    path("quote/", views.ShippingQuoteView.as_view(), name="quote"),
-    path("track/<str:order_number>/", views.CustomerTrackingView.as_view(), name="track"),
-    path("admin/shipments/<str:order_number>/", views.StaffShipmentCreateView.as_view(), name="create-shipment"),
-    path("admin/shipments/<str:tracking_reference>/events/", views.StaffShipmentEventView.as_view(), name="shipment-event"),
-]
+router = DefaultRouter()
+router.register("options", ShippingQuoteView, basename="shipping-options")
+router.register("zones", ShippingZoneViewSet, basename="shipping-zone")
+router.register("methods", ShippingMethodViewSet, basename="shipping-method")
+
+urlpatterns = [path("", include(router.urls))]

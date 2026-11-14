@@ -5,4 +5,3 @@ class CmsConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "apps.cms"
     label = "cms"
-    verbose_name = "Content & Settings"

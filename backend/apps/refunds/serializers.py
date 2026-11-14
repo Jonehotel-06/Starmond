@@ -1,44 +1,30 @@
-from decimal import Decimal
-
 from rest_framework import serializers
 
-from apps.core.utils import money
-from apps.refunds.models import Refund, RefundItem
-
-
-class RefundItemSerializer(serializers.ModelSerializer):
-    product_name = serializers.CharField(source="order_item.product_name", read_only=True)
-    sku = serializers.CharField(source="order_item.sku", read_only=True)
-
-    class Meta:
-        model = RefundItem
-        fields = ["id", "order_item", "product_name", "sku", "quantity", "amount"]
+from .models import Refund
 
 
 class RefundSerializer(serializers.ModelSerializer):
-    items = RefundItemSerializer(many=True, read_only=True)
-    order_number = serializers.CharField(source="order.order_number", read_only=True)
-    status_label = serializers.CharField(source="get_status_display", read_only=True)
-    reason_label = serializers.CharField(source="get_reason_category_display", read_only=True)
+    order_reference = serializers.CharField(source="order.reference", read_only=True)
+    payment_reference = serializers.CharField(source="payment.reference", read_only=True)
+    processed_by_email = serializers.CharField(source="processed_by.email", read_only=True, default=None)
 
     class Meta:
         model = Refund
-        fields = ["id", "refund_number", "order_number", "refund_type", "status", "status_label",
-                  "reason_category", "reason_label", "customer_note", "amount_requested",
-                  "amount_approved", "amount_refunded", "currency", "provider_status",
-                  "items", "created_at", "reviewed_at", "completed_at", "restock_processed"]
+        fields = ["id", "reference", "order", "order_reference", "payment_reference", "reason",
+                  "requested_amount", "approved_amount", "status", "restock_items",
+                  "provider_refund_id", "processed_by_email", "decided_at", "processed_at",
+                  "created_at"]
+        read_only_fields = ["id", "reference", "approved_amount", "status", "provider_refund_id",
+                            "processed_by_email", "decided_at", "processed_at", "created_at"]
 
 
 class RefundRequestSerializer(serializers.Serializer):
-    order_number = serializers.CharField(max_length=32)
-    reason_category = serializers.ChoiceField(choices=Refund.Reason.choices)
-    customer_note = serializers.CharField(required=False, allow_blank=True, max_length=2000)
-    items = serializers.ListField(child=serializers.DictField(), required=False)
-    amount = serializers.DecimalField(max_digits=14, decimal_places=2, required=False, min_value=Decimal("0"))
+    order_reference = serializers.CharField(max_length=32)
+    reason = serializers.CharField(max_length=2000)
+    amount = serializers.DecimalField(max_digits=14, decimal_places=2, required=False, allow_null=True)
+    restock = serializers.BooleanField(required=False, default=False)
 
 
 class RefundDecisionSerializer(serializers.Serializer):
-    amount = serializers.DecimalField(max_digits=14, decimal_places=2, required=False, min_value=Decimal("0"))
-    restock = serializers.BooleanField(default=False)
-    note = serializers.CharField(required=False, allow_blank=True)
-    reason = serializers.CharField(required=False, allow_blank=True)
+    approved_amount = serializers.DecimalField(max_digits=14, decimal_places=2, required=False, allow_null=True)
+    notes = serializers.CharField(max_length=2000, required=False, allow_blank=True, default="")

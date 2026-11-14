@@ -1,54 +1,81 @@
+from django.db import transaction
 from rest_framework import serializers
 
-from apps.customers.models import Address, WishlistItem
+from apps.products.models import Product
+
+from .models import Address, CustomerProfile, Wishlist, WishlistItem
+
+
+class CustomerProfileSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(source="user.email", read_only=True)
+    full_name = serializers.CharField(source="user.full_name")
+    phone = serializers.CharField(source="user.phone", allow_blank=True)
+
+    class Meta:
+        model = CustomerProfile
+        fields = ["email", "full_name", "phone", "marketing_emails", "order_update_emails", "sms_updates"]
+
+    def update(self, instance, validated_data):
+        user_data = {}
+        if "user" in validated_data:
+            user_data = validated_data.pop("user")
+        instance = super().update(instance, validated_data)
+        if user_data:
+            user = instance.user
+            for k, v in user_data.items():
+                setattr(user, k, v)
+            user.save(update_fields=list(user_data.keys()))
+        return instance
 
 
 class AddressSerializer(serializers.ModelSerializer):
-    one_line = serializers.CharField(read_only=True)
-
     class Meta:
         model = Address
-        fields = ["id", "label", "recipient_name", "phone", "email", "street_address",
-                  "apartment", "city", "state", "lga", "postal_code", "country",
-                  "delivery_instructions", "is_default", "one_line", "created_at"]
-        read_only_fields = ["id", "created_at"]
+        fields = ["public_id", "kind", "label", "full_name", "phone", "state", "city", "street",
+                  "details", "instructions", "is_default", "created_at"]
+        read_only_fields = ["public_id", "created_at"]
 
-    def validate_state(self, value):
-        from apps.shipping.services import ShippingService
-
-        normalised = ShippingService.normalise_state(value)
-        if not normalised:
-            raise serializers.ValidationError("Enter a valid state.")
-        return normalised
+    @transaction.atomic
+    def save(self, **kwargs):
+        instance = super().save(**kwargs)
+        if instance.is_default:
+            Address.objects.filter(customer=instance.customer, kind=instance.kind, is_default=True)\
+                .exclude(pk=instance.pk).update(is_default=False)
+        return instance
 
 
 class WishlistItemSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source="product.name", read_only=True)
     product_slug = serializers.CharField(source="product.slug", read_only=True)
-    price = serializers.SerializerMethodField()
-    image = serializers.SerializerMethodField()
-    variation_label = serializers.SerializerMethodField()
-    in_stock = serializers.SerializerMethodField()
+    main_image = serializers.SerializerMethodField()
+    price = serializers.DecimalField(source="product.effective_price", max_digits=12, decimal_places=2, read_only=True)
+    in_stock = serializers.BooleanField(source="product.is_in_stock", read_only=True)
 
     class Meta:
         model = WishlistItem
-        fields = ["id", "product", "product_name", "product_slug", "variation",
-                  "variation_label", "price", "image", "in_stock", "created_at"]
+        fields = ["id", "product", "product_name", "product_slug", "main_image", "price", "in_stock", "created_at"]
+        read_only_fields = ["id", "created_at"]
 
-    def get_price(self, obj):
-        return str(obj.variation.effective_price if obj.variation_id else obj.product.price)
+    def get_main_image(self, obj):
+        img = obj.product.main_image
+        return img.file_url if img else None
 
-    def get_image(self, obj):
-        try:
-            image = obj.product.primary_image
-            return image.image.url if image else None
-        except Exception:
-            return None
+    def validate_product(self, product):
+        if not product.is_public:
+            raise serializers.ValidationError("Product is not available.")
+        return product
 
-    def get_variation_label(self, obj):
-        return obj.variation.label if obj.variation_id else ""
 
-    def get_in_stock(self, obj):
-        from apps.inventory.services import InventoryService
+class WishlistAddSerializer(serializers.Serializer):
+    product = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all())
 
-        return InventoryService.available_quantity(obj.product, obj.variation) > 0
+
+class StaffCustomerSerializer(serializers.Serializer):
+    id = serializers.IntegerField(source="pk")
+    email = serializers.EmailField()
+    full_name = serializers.CharField()
+    phone = serializers.CharField()
+    is_email_verified = serializers.BooleanField()
+    date_joined = serializers.DateTimeField()
+    orders_count = serializers.IntegerField()
+    total_spent = serializers.DecimalField(max_digits=14, decimal_places=2)

@@ -1,211 +1,243 @@
-"""Checkout, order retrieval, tracking and customer order actions."""
-from __future__ import annotations
-
-from django.conf import settings
+import django_filters as filters
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.throttling import ScopedRateThrottle
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
-from apps.cart.services import CartService
-from apps.core.exceptions import ValidationError
-from apps.core.pagination import StandardResultsSetPagination
-from apps.core.views import BaseAPIView, client_ip
-from apps.orders.checkout import CheckoutService
-from apps.orders.models import Order
-from apps.orders.serializers import (
-    BuyNowSerializer, CheckoutSerializer, OrderDetailSerializer, OrderSummarySerializer,
+from apps.audit.services import AuditService
+from apps.core.constants import Perm
+from apps.core.exceptions import ServiceError
+from apps.core.permissions import IsStaffWithPermission, user_has_permission
+from services.checkout_service import GUEST_TOKEN_SALT, CheckoutService
+from services.notification_service import NotificationService
+
+from .models import Order
+from .serializers import (
+    CheckoutSerializer,
+    GuestLookupSerializer,
+    OrderDetailSerializer,
+    OrderStaffSerializer,
+    OrderStatusUpdateSerializer,
+    OrderSummarySerializer,
 )
-from apps.orders.services import OrderService
-from apps.payments.services import PaymentService
+from .services import OrderService
 
 
-def _order_payload(order, request) -> dict:
-    payload = OrderDetailSerializer(order).data
-    payload["payment"] = PaymentService.public_payment_status(order)
-    if order.payment_status in {Order.PaymentStatus.UNPAID, Order.PaymentStatus.FAILED,
-                                Order.PaymentStatus.PENDING}:
-        payload["payment_endpoint"] = str(request.build_absolute_uri("/api/v1/payments/initialize/"))
-    # A guest receives their one-time access token exactly once, here.
-    token = getattr(order, "_plain_guest_token", None)
-    if token:
-        payload["guest_access_token"] = token
-    return payload
+from drf_spectacular.utils import OpenApiTypes, extend_schema, extend_schema_view
 
+@extend_schema(tags=["checkout"], request=CheckoutSerializer,
+    responses={201: OpenApiTypes.OBJECT, 200: OpenApiTypes.OBJECT},
+    description="Create a pending order from the cart (source.type=cart) or directly (source.type=buy_now). Send an Idempotency-Key header to make retries safe.")
+class CheckoutView(APIView):
+    """POST /api/checkout/ — cart checkout AND Buy Now (source.type).
 
-class CheckoutPreviewView(BaseAPIView):
+    Creates a pending order, reserves stock, applies authoritative pricing.
+    Send an Idempotency-Key header to make retries safe.
+    """
     permission_classes = [AllowAny]
-    throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "checkout"
-
-    def post(self, request):
-        data = request.data
-        customer = request.user if request.user.is_authenticated else None
-        cart = CartService.get_for_request(request, create=False)
-        payload = CheckoutService.preview(
-            cart=cart,
-            product_id=data.get("product_id"),
-            variation_id=data.get("variation_id"),
-            quantity=data.get("quantity", 1),
-            state=data.get("state", ""),
-            city=data.get("city", ""),
-            shipping_method_code=data.get("shipping_method_code") or None,
-            promo_codes=data.get("promo_codes"),
-            customer=customer,
-        )
-        return self.ok(payload)
-
-
-class CartCheckoutView(BaseAPIView):
-    """Converts the active cart into an order. Requires an idempotency key."""
-
-    permission_classes = [AllowAny]
-    throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "checkout"
 
     def post(self, request):
         serializer = CheckoutSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        cart = CartService.get_for_request(request)
-        customer = request.user if request.user.is_authenticated else None
-
-        result = CheckoutService.checkout_cart(
-            cart=cart,
-            shipping=serializer.to_shipping(),
-            customer=customer,
-            guest_email=serializer.validated_data.get("email", ""),
-            guest_phone=serializer.validated_data.get("phone", ""),
-            customer_note=serializer.validated_data.get("customer_note", ""),
-            shipping_method_code=serializer.validated_data.get("shipping_method_code") or None,
-            promo_codes=serializer.validated_data.get("promo_codes"),
-            source_ip=client_ip(request),
-            user_agent=request.META.get("HTTP_USER_AGENT", ""),
-            idempotency_key=serializer.validated_data.get("idempotency_key")
-            or request.META.get("HTTP_X_IDEMPOTENCY_KEY"),
-        )
-        payload = _order_payload(result.order, request)
-        return self.created(
-            payload,
-            message="Order created. Complete payment to confirm it."
-            if not result.replayed else "This order was already created.",
-        )
+        payload = dict(serializer.validated_data)
+        payload["idempotency_key"] = (
+            request.headers.get("Idempotency-Key") or payload.get("idempotency_key") or None)
+        order, created = CheckoutService.create_order(request, payload=payload)
+        if created:
+            NotificationService.order_created(order, request)
+            AuditService.log(request.user if request.user.is_authenticated else None,
+                             "order.create", "Order", order.pk,
+                             {"reference": order.reference, "total": str(order.total_amount), "source": order.source},
+                             request=request)
+        data = OrderDetailSerializer(order).data
+        data["created"] = created
+        data["next_step"] = {
+            "action": "initialize_payment",
+            "endpoint": "/api/payments/paystack/initialize/",
+            "payload": {"order_reference": order.reference,
+                        **({"guest_token": order.guest_access_token} if order.guest_access_token else {})},
+            "expires_at": order.expires_at,
+        }
+        return Response({"status": "success", "data": data},
+                        status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
 
-class BuyNowCheckoutView(BaseAPIView):
-    """Direct checkout that never touches the customer's existing cart."""
-
-    permission_classes = [AllowAny]
-    throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "checkout"
-
-    def post(self, request):
-        serializer = BuyNowSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
-        customer = request.user if request.user.is_authenticated else None
-
-        result = CheckoutService.checkout_buy_now(
-            product_id=str(data["product_id"]),
-            variation_id=str(data["variation_id"]) if data.get("variation_id") else None,
-            quantity=data["quantity"],
-            shipping=serializer.to_shipping(),
-            customer=customer,
-            guest_email=data.get("email", ""),
-            guest_phone=data.get("phone", ""),
-            customer_note=data.get("customer_note", ""),
-            shipping_method_code=data.get("shipping_method_code") or None,
-            promo_codes=data.get("promo_codes"),
-            custom_order_details=data.get("custom_order_details"),
-            source_ip=client_ip(request),
-            user_agent=request.META.get("HTTP_USER_AGENT", ""),
-            idempotency_key=data.get("idempotency_key")
-            or request.META.get("HTTP_X_IDEMPOTENCY_KEY"),
-        )
-        return self.created(_order_payload(result.order, request),
-                            message="Order created. Complete payment to confirm it.")
-
-
-class CustomerOrderListView(BaseAPIView):
+@extend_schema(tags=["orders"], responses=OpenApiTypes.OBJECT)
+class CustomerOrderListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        queryset = Order.objects.filter(customer=request.user).order_by("-created_at")
-        if request.query_params.get("status"):
-            queryset = queryset.filter(status=request.query_params["status"])
-        paginator = StandardResultsSetPagination()
-        page = paginator.paginate_queryset(queryset, request, view=self)
+        qs = Order.objects.filter(customer=request.user).prefetch_related("items")
+        status_filter = request.query_params.get("status")
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        from apps.core.pagination import StandardPagination
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(qs, request)
         return paginator.get_paginated_response(OrderSummarySerializer(page, many=True).data)
 
 
-class CustomerOrderDetailView(BaseAPIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request, order_number: str):
-        order = OrderService.get_customer_order(order_number, request.user)
-        return self.ok(_order_payload(order, request))
-
-
-class GuestOrderDetailView(BaseAPIView):
-    """Guest access via the expiring token issued at checkout."""
-
+@extend_schema_view(
+    get=extend_schema(tags=["orders"], responses=OpenApiTypes.OBJECT),
+    post=extend_schema(tags=["orders"], request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT,
+        description="Cancel own pending-payment order."))
+class CustomerOrderDetailView(APIView):
+    """Authenticated owners OR guests holding a valid signed access token."""
     permission_classes = [AllowAny]
-    throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "anon"
 
-    def get(self, request, order_number: str):
-        token = request.query_params.get("token") or request.META.get("HTTP_X_ORDER_TOKEN", "")
-        order = OrderService.get_guest_order(order_number, token)
-        return self.ok(_order_payload(order, request))
+    def get(self, request, reference):
+        order = get_object_or_404(Order.objects.prefetch_related("items"), reference=reference)
+        if request.user.is_authenticated and order.customer_id == request.user.pk:
+            return Response({"status": "success", "data": OrderDetailSerializer(order).data})
+        token = request.query_params.get("token", "")
+        if order.guest_access_token and token and CheckoutService.verify_guest_token(order, token):
+            return Response({"status": "success", "data": OrderDetailSerializer(order).data})
+        raise ServiceError("You do not have access to this order.", code="forbidden", status_code=403)
 
-
-class CustomerOrderCancelView(BaseAPIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, order_number: str):
-        order = OrderService.get_customer_order(order_number, request.user)
-        updated = OrderService.cancel(order, actor=request.user,
-                                      reason=request.data.get("reason", ""))
-        return self.ok(_order_payload(updated, request), message="Order cancelled.")
-
-
-class CustomerOrderTrackView(BaseAPIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request, order_number: str):
-        order = OrderService.get_customer_order(order_number, request.user)
-        from apps.shipping.services import ShippingService
-
-        return self.ok({
-            "order_number": order.order_number,
-            "status": order.status,
-            "status_label": order.get_status_display(),
-            "progress": order.fulfilment_progress,
-            "tracking": ShippingService.track(order),
-            "timeline": OrderDetailSerializer(order).data["activities"],
-        })
+    def post(self, request, reference):
+        """Cancel own pending-payment order."""
+        order = get_object_or_404(Order, reference=reference)
+        owner = request.user.is_authenticated and order.customer_id == request.user.pk
+        guest_ok = order.guest_access_token and CheckoutService.verify_guest_token(
+            order, request.data.get("token", ""))
+        if not (owner or guest_ok):
+            raise ServiceError("You do not have access to this order.", code="forbidden", status_code=403)
+        if order.status != Order.Status.PENDING_PAYMENT:
+            raise ServiceError("Only orders awaiting payment can be cancelled here. "
+                               "For paid orders, submit a refund request.",
+                               code="cancel_not_allowed", status_code=409)
+        OrderService.cancel(order, actor=request.user if request.user.is_authenticated else None,
+                            note="Cancelled by customer")
+        NotificationService.order_cancelled(order)
+        return Response({"status": "success", "message": f"Order {order.reference} cancelled."})
 
 
-class OrderReceiptView(BaseAPIView):
-    """Machine-readable receipt; printable HTML lives on the frontend."""
+@extend_schema(tags=["orders"], request=GuestLookupSerializer, responses=OpenApiTypes.OBJECT)
+class GuestOrderLookupView(APIView):
+    """POST /api/orders/lookup/ {reference, email} -> expiring signed access token."""
+    permission_classes = [AllowAny]
 
-    permission_classes = [IsAuthenticated]
+    def post(self, request):
+        serializer = GuestLookupSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        order = Order.objects.filter(
+            reference=serializer.validated_data["reference"].upper(),
+            contact_email=serializer.validated_data["email"].lower()).first()
+        if not order:
+            # Uniform error to avoid confirming order existence by enumeration
+            raise ServiceError("No order found for that reference and email combination.", code="order_not_found", status_code=404)
+        if not order.guest_access_token:
+            from django.core import signing
+            order.guest_access_token = signing.dumps(
+                {"ref": order.reference, "email": order.contact_email}, salt=GUEST_TOKEN_SALT)
+            order.save(update_fields=["guest_access_token"])
+        return Response({"status": "success", "data": {
+            "reference": order.reference, "token": order.guest_access_token,
+            "detail_url": f"/api/orders/{order.reference}/?token={order.guest_access_token}",
+            "summary": OrderSummarySerializer(order).data,
+        }})
 
-    def get(self, request, order_number: str):
-        order = OrderService.get_customer_order(order_number, request.user)
-        if not order.is_paid:
-            raise ValidationError("A receipt is only available for a paid order.")
-        from apps.cms.services import SettingsService
 
-        return self.ok({
-            "receipt_number": f"RCP-{order.order_number}",
-            "issued_at": order.paid_at.isoformat() if order.paid_at else None,
-            "business": {
-                "name": settings.BUSINESS_NAME,
-                "email": SettingsService.get("support_email", ""),
-                "phone": SettingsService.get("support_phone", ""),
-                "address": SettingsService.get("business_address", ""),
-            },
-            "customer": {"name": order.customer_name, "email": order.customer_email},
-            "order": OrderDetailSerializer(order).data,
-            "amount_paid": str(order.amount_paid),
-            "amount_refunded": str(order.amount_refunded),
-            "currency": order.currency,
-        })
+# --------------------------------------------------------------------- staff
+class StaffOrderFilter(filters.FilterSet):
+    q = filters.CharFilter(method="filter_q")
+    date_from = filters.DateFilter(field_name="placed_at", lookup_expr="date__gte")
+    date_to = filters.DateFilter(field_name="placed_at", lookup_expr="date__lte")
+
+    class Meta:
+        model = Order
+        fields = ["status", "payment_status", "source", "delivery_state", "date_from", "date_to", "q"]
+
+    def filter_q(self, qs, name, value):
+        from django.db.models import Q
+        return qs.filter(
+            Q(reference__icontains=value) | Q(contact_email__icontains=value) |
+            Q(contact_full_name__icontains=value) | Q(contact_phone__icontains=value) |
+            Q(delivery_full_name__icontains=value) | Q(delivery_phone__icontains=value) |
+            Q(items__product_name__icontains=value)
+        ).distinct()
+
+
+class StaffOrderViewSet(viewsets.ReadOnlyModelViewSet):
+    permission_classes = [IsStaffWithPermission]
+    permission_codename = Perm.ORDERS_VIEW
+    serializer_class = OrderStaffSerializer
+    queryset = Order.objects.select_related("customer").prefetch_related(
+        "items", "status_logs__actor", "payments").all()
+    filterset_class = StaffOrderFilter
+    search_fields = ["reference", "contact_email"]
+    ordering_fields = ["placed_at", "total_amount"]
+    ordering = ["-placed_at"]
+    lookup_field = "reference"
+
+    def _manage_perm(self, request, codename=Perm.ORDERS_MANAGE):
+        if not user_has_permission(request.user, codename):
+            raise ServiceError("You lack the required permission for this action.", code="permission_denied", status_code=403)
+
+    @action(detail=True, methods=["post"], url_path="status")
+    def update_status(self, request, reference=None):
+        self._manage_perm(request, Perm.ORDERS_FULFIL)
+        order = self.get_object()
+        serializer = OrderStatusUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        new_status = serializer.validated_data["status"]
+        # Financial statuses are driven ONLY by the payment layer.
+        if new_status in (Order.Status.PAID, Order.Status.REFUNDED, Order.Status.PARTIALLY_REFUNDED,
+                          Order.Status.EXPIRED, Order.Status.PAYMENT_FAILED):
+            raise ServiceError(f"Status '{new_status}' is set automatically by the payment/refund system.",
+                               code="protected_status", status_code=409)
+        if new_status == Order.Status.CANCELLED:
+            if order.payment_status == Order.PaymentStatus.PAID:
+                raise ServiceError("Paid orders cannot be cancelled — process a refund instead.",
+                                   code="paid_order_cancel", status_code=409)
+            OrderService.cancel(order, actor=request.user, note=serializer.validated_data.get("note") or "Cancelled by staff")
+        else:
+            if serializer.validated_data.get("tracking_reference"):
+                order.tracking_reference = serializer.validated_data["tracking_reference"][:120]
+                order.save(update_fields=["tracking_reference", "updated_at"])
+            OrderService.transition(order, new_status, actor=request.user,
+                                    note=serializer.validated_data.get("note", ""))
+        NotificationService.order_status_changed(order, new_status)
+        AuditService.log(request.user, "order.status", "Order", order.pk,
+                         {"to": new_status, "reference": order.reference}, request=request)
+        return Response({"status": "success", "data": OrderStaffSerializer(order).data})
+
+    @action(detail=True, methods=["post"], url_path="notes")
+    def add_note(self, request, reference=None):
+        self._manage_perm(request)
+        order = self.get_object()
+        note = (request.data.get("note") or "").strip()
+        if not note:
+            raise ServiceError("note is required.", code="required_field")
+        order.internal_notes = (order.internal_notes + ("\n" if order.internal_notes else "") + note)[:5000]
+        order.save(update_fields=["internal_notes", "updated_at"])
+        AuditService.log(request.user, "order.note", "Order", order.pk, {"note": note[:200]}, request=request)
+        return Response({"status": "success", "message": "Note added."})
+
+    @action(detail=True, methods=["get"], url_path="receipt")
+    def receipt(self, request, reference=None):
+        """Receipt / invoice data for printing (frontend renders the document)."""
+        order = self.get_object()
+        from apps.cms.services import BusinessSettingsService
+        business = BusinessSettingsService.all_values()
+        payments = [
+            {"reference": p.reference, "provider": p.provider, "provider_reference": p.provider_reference,
+             "amount": str(p.amount), "currency": p.currency, "status": p.status, "channel": p.channel,
+             "verified_at": p.verified_at}
+            for p in order.payments.filter(status="successful")
+        ]
+        refunds = [
+            {"reference": r.reference, "amount": str(r.approved_amount), "status": r.status, "processed_at": r.processed_at}
+            for r in order.refunds.filter(status__in=["successful"])
+        ]
+        return Response({"status": "success", "data": {
+            "business": business,
+            "order": OrderStaffSerializer(order).data,
+            "payments": payments,
+            "refunds": refunds,
+            "invoice_number": f"INV-{order.reference}",
+            "generated_at": timezone.now().isoformat(),
+        }})

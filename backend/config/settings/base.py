@@ -1,61 +1,38 @@
+"""Base settings for STARMOND TECHNOLOGY LIMITED backend.
+
+Secrets come exclusively from environment variables. Nothing sensitive is
+hardcoded. See .env.example for the full contract.
 """
-STARMOND TECHNOLOGY LIMITED — base Django settings.
-
-Shared by development and production settings modules.
-Every environment-specific or secret value is read with python-decouple's
-`config` (from the environment first, then from the project's .env file).
-
-Requires:  pip install python-decouple
-"""
-from __future__ import annotations
-
-from datetime import timedelta
+import os
 from pathlib import Path
 
-from decouple import AutoConfig, Csv
+from apps.core.env import env
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-# Look for .env / settings.ini in the project root regardless of where Django
-# is started from.
-config = AutoConfig(search_path=BASE_DIR)
+SECRET_KEY = env("DJANGO_SECRET_KEY", default="insecure-dev-only-change-me")
+DEBUG = env("DJANGO_DEBUG", default="false", cast=bool)
+ALLOWED_HOSTS = env("DJANGO_ALLOWED_HOSTS", default="localhost,127.0.0.1", cast=list)
 
+FRONTEND_BASE_URL = env("FRONTEND_BASE_URL", default="http://localhost:3000")
+SITE_URL = env("SITE_URL", default=FRONTEND_BASE_URL)
+API_BASE_URL = env("API_BASE_URL", default="http://localhost:8000")
 
-# ---------------------------------------------------------------------------
-# Core
-# ---------------------------------------------------------------------------
-SECRET_KEY = config("DJANGO_SECRET_KEY", default="unsafe-dev-key-change-me")
-DEBUG = config("DJANGO_DEBUG", default=False, cast=bool)
-ALLOWED_HOSTS = config("DJANGO_ALLOWED_HOSTS", default="localhost,127.0.0.1", cast=Csv())
-
-BUSINESS_NAME = config("BUSINESS_NAME", default="STARMOND TECHNOLOGY LIMITED")
-DEFAULT_CURRENCY = config("DEFAULT_CURRENCY", default="NGN")
-SUPPORTED_CURRENCIES = config("SUPPORTED_CURRENCIES", default="NGN", cast=Csv())
-SITE_URL = config("SITE_URL", default="http://localhost:8000").rstrip("/")
-FRONTEND_URL = config("FRONTEND_URL", default="http://localhost:3000").rstrip("/")
-
-# ---------------------------------------------------------------------------
-# Applications
-# ---------------------------------------------------------------------------
-DJANGO_APPS = [
+INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "django.contrib.sitemaps",
-]
-
-THIRD_PARTY_APPS = [
+    "django.contrib.sites",
+    # Third party
     "rest_framework",
     "rest_framework.authtoken",
-    "corsheaders",
     "django_filters",
+    "corsheaders",
     "drf_spectacular",
-]
-
-LOCAL_APPS = [
+    # Business apps
     "apps.core",
     "apps.accounts",
     "apps.customers",
@@ -74,24 +51,22 @@ LOCAL_APPS = [
     "apps.dashboard",
     "apps.reports",
     "apps.cms",
-    "apps.media_lib",
+    "apps.media",
     "apps.seo",
     "apps.audit",
 ]
 
-INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
-
 MIDDLEWARE = [
-    "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
+    "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "apps.core.middleware.RequestIDMiddleware",
-    "apps.core.middleware.AuditContextMiddleware",
+    "django.middleware.gzip.GZipMiddleware",
+    "apps.core.middleware.RequestContextMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -114,302 +89,243 @@ TEMPLATES = [
     },
 ]
 
-# ---------------------------------------------------------------------------
-# Database — MySQL 8+ / PostgreSQL in production, SQLite for local dev/tests
-# ---------------------------------------------------------------------------
-DB_ENGINE = config("DB_ENGINE", default="sqlite").lower()
-
-if DB_ENGINE in {"postgres", "postgresql"}:
+# ---------------------------------------------------------------- Database
+DB_ENGINE = env("DB_ENGINE", default="mysql")  # "mysql" | "sqlite" (dev/test only)
+if DB_ENGINE == "sqlite":
     DATABASES = {
         "default": {
-            "ENGINE": "django.db.backends.postgresql",
-            "NAME": config("DB_NAME", default="starmond"),
-            "USER": config("DB_USER", default="starmond"),
-            "PASSWORD": config("DB_PASSWORD", default=""),
-            "HOST": config("DB_HOST", default="127.0.0.1"),
-            "PORT": config("DB_PORT", default="5432"),
-            "CONN_MAX_AGE": config("DB_CONN_MAX_AGE", default=60, cast=int),
-            "ATOMIC_REQUESTS": False,
-            "OPTIONS": {"connect_timeout": 10},
-        }
-    }
-elif DB_ENGINE in {"mysql", "mariadb"}:
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.mysql",
-            "NAME": config("DB_NAME", default="starmond"),
-            "USER": config("DB_USER", default="starmond"),
-            "PASSWORD": config("DB_PASSWORD", default=""),
-            "HOST": config("DB_HOST", default="127.0.0.1"),
-            "PORT": config("DB_PORT", default="3306"),
-            "CONN_MAX_AGE": config("DB_CONN_MAX_AGE", default=60, cast=int),
-            "ATOMIC_REQUESTS": False,
-            "OPTIONS": {
-                "charset": "utf8mb4",
-                "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
-            },
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / env("SQLITE_NAME", default="db.sqlite3"),
         }
     }
 else:
     DATABASES = {
         "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": Path(config("DB_NAME", default=str(BASE_DIR / "db.sqlite3"))),
-            "OPTIONS": {"timeout": 20},
+            "ENGINE": "django.db.backends.mysql",
+            "NAME": env("DB_NAME", default="starmond"),
+            "USER": env("DB_USER", default="starmond"),
+            "PASSWORD": env("DB_PASSWORD", default=""),
+            "HOST": env("DB_HOST", default="127.0.0.1"),
+            "PORT": env("DB_PORT", default="3306"),
+            "CONN_MAX_AGE": env("DB_CONN_MAX_AGE", default=60, cast=int),
+            "OPTIONS": {
+                "charset": "utf8mb4",
+                "init_command": "SET sql_mode='STRICT_TRANS_TABLES', "
+                                "default_storage_engine=InnoDB, "
+                                "transaction_isolation='READ-COMMITTED'",
+            },
+            "TEST": {"CHARSET": "utf8mb4", "COLLATION": "utf8mb4_unicode_ci"},
         }
     }
-
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# ---------------------------------------------------------------------------
-# Authentication
-# ---------------------------------------------------------------------------
 AUTH_USER_MODEL = "accounts.User"
+SITE_ID = 1
 
-AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
-     "OPTIONS": {"min_length": 10}},
-    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
-    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
-]
-
-# ---------------------------------------------------------------------------
-# DRF
-# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------- Auth / DRF
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
         "rest_framework.authentication.SessionAuthentication",
+        "rest_framework.authentication.TokenAuthentication",
     ],
-    "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.IsAuthenticatedOrReadOnly",
-    ],
-    "DEFAULT_PAGINATION_CLASS": "apps.core.pagination.StandardResultsSetPagination",
-    "PAGE_SIZE": config("API_PAGE_SIZE", default=20, cast=int),
+    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticatedOrReadOnly"],
+    "DEFAULT_PAGINATION_CLASS": "apps.core.pagination.StandardPagination",
+    "PAGE_SIZE": 20,
     "DEFAULT_FILTER_BACKENDS": [
         "django_filters.rest_framework.DjangoFilterBackend",
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
     ],
-    "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
-    "DEFAULT_PARSER_CLASSES": [
-        "rest_framework.parsers.JSONParser",
-        "rest_framework.parsers.MultiPartParser",
-        "rest_framework.parsers.FormParser",
-    ],
     "EXCEPTION_HANDLER": "apps.core.exceptions.api_exception_handler",
-    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_THROTTLE_CLASSES": [
-        "rest_framework.throttling.ScopedRateThrottle",
+        "apps.core.throttles.BurstAnonThrottle",
+        "apps.core.throttles.StandardUserThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {
-        "anon": config("THROTTLE_ANON", default="120/min"),
-        "user": config("THROTTLE_USER", default="600/min"),
-        "auth": config("THROTTLE_AUTH", default="10/min"),
-        "checkout": config("THROTTLE_CHECKOUT", default="30/min"),
-        "review": config("THROTTLE_REVIEW", default="5/hour"),
-        "webhook": config("THROTTLE_WEBHOOK", default="600/min"),
-        "search": config("THROTTLE_SEARCH", default="120/min"),
+        "anon_burst": env("THROTTLE_ANON", default="240/hour"),
+        "user_standard": env("THROTTLE_USER", default="1200/hour"),
+        "auth_action": env("THROTTLE_AUTH", default="10/hour"),
+        "webhook": env("THROTTLE_WEBHOOK", default="600/minute"),
     },
-    "UNAUTHENTICATED_USER": "django.contrib.auth.models.AnonymousUser",
-}
-
-SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=config("JWT_ACCESS_MINUTES", default=45, cast=int)),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=config("JWT_REFRESH_DAYS", default=14, cast=int)),
-    "ROTATE_REFRESH_TOKENS": True,
-    "BLACKLIST_AFTER_ROTATION": False,
-    "UPDATE_LAST_LOGIN": True,
-    "ALGORITHM": "HS256",
-    "SIGNING_KEY": SECRET_KEY,
-    "AUTH_HEADER_TYPES": ("Bearer",),
-    "USER_ID_FIELD": "id",
-    "USER_ID_CLAIM": "user_id",
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # 'format' is a business query-param (report exports), not a renderer suffix
+    "URL_FORMAT_OVERRIDE": None,
+    "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
 }
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "STARMOND TECHNOLOGY LIMITED API",
-    "DESCRIPTION": "Single-owner multi-category e-commerce platform backend.",
+    "TITLE": "STARMOND TECHNOLOGY LIMITED — E-Commerce API",
+    "DESCRIPTION": "Complete multi-category e-commerce backend API (single-owner retail).",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
+    "SCHEMA_PATH_PREFIX": "/api/",
 }
 
-# ---------------------------------------------------------------------------
-# Internationalisation / time
-# ---------------------------------------------------------------------------
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator", "OPTIONS": {"min_length": 8}},
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+]
+
+# Sessions / cookies — secure defaults; tightened in production settings.
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_HTTPONLY = False  # frontend JS must read the CSRF cookie
+CSRF_COOKIE_SAMESITE = "Lax"
+CSRF_TRUSTED_ORIGINS = env("CSRF_TRUSTED_ORIGINS", default="http://localhost:3000", cast=list)
+CORS_ALLOWED_ORIGINS = env("CORS_ALLOWED_ORIGINS", default="http://localhost:3000", cast=list)
+CORS_ALLOW_CREDENTIALS = True
+CORS_EXPOSE_HEADERS = ["X-Request-ID", "X-Response-Time-Ms", "X-CSRFToken"]
+
+# ---------------------------------------------------------------- I18N / time
 LANGUAGE_CODE = "en-ng"
-TIME_ZONE = config("TIME_ZONE", default="Africa/Lagos")
+TIME_ZONE = env("DJANGO_TIME_ZONE", default="Africa/Lagos")
 USE_I18N = True
 USE_TZ = True
 
-# ---------------------------------------------------------------------------
-# Static & media
-# ---------------------------------------------------------------------------
-STATIC_URL = config("STATIC_URL", default="/static/")
-STATIC_ROOT = Path(config("STATIC_ROOT", default=str(BASE_DIR / "staticfiles")))
-MEDIA_URL = config("MEDIA_URL", default="/media/")
-MEDIA_ROOT = Path(config("MEDIA_ROOT", default=str(BASE_DIR / "media")))
+# ---------------------------------------------------------------- Static / media
+STATIC_URL = "/static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
+# Backblaze B2 (S3-compatible). Falls back to local storage when unset (dev).
+B2_APPLICATION_KEY_ID = env("B2_APPLICATION_KEY_ID")
+B2_APPLICATION_KEY = env("B2_APPLICATION_KEY")
+B2_BUCKET_NAME = env("B2_BUCKET_NAME", default="starmond-media")
+B2_ENDPOINT_URL = env("B2_ENDPOINT_URL", default="https://s3.us-west-004.backblazeb2.com")
+B2_REGION = env("B2_REGION", default="us-west-004")
+B2_PUBLIC_BASE_URL = env("B2_PUBLIC_BASE_URL", default="")
+B2_MEDIA_PRIVATE_BUCKET = env("B2_MEDIA_PRIVATE_BUCKET", default="starmond-media-private")
+
+B2_CONFIGURED = bool(B2_APPLICATION_KEY_ID and B2_APPLICATION_KEY)
+
 STORAGES = {
-    "default": {"BACKEND": config(
-        "DEFAULT_FILE_STORAGE",
-        default="django.core.files.storage.FileSystemStorage",
-    )},
-    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "django.core.files.storage.StaticFilesStorage"},
 }
-MAX_UPLOAD_SIZE_BYTES = config("MAX_UPLOAD_SIZE_BYTES", default=8 * 1024 * 1024, cast=int)
+if B2_CONFIGURED:
+    STORAGES["default"] = {
+        "BACKEND": "storages.backends.s3.S3Storage",
+        "OPTIONS": {
+            "access_key": B2_APPLICATION_KEY_ID,
+            "secret_key": B2_APPLICATION_KEY,
+            "bucket_name": B2_BUCKET_NAME,
+            "endpoint_url": B2_ENDPOINT_URL,
+            "region_name": B2_REGION,
+            "custom_domain": B2_PUBLIC_BASE_URL.replace("https://", "").replace("http://", "") or None,
+            "default_acl": None,
+            "querystring_auth": False,
+        },
+    }
+    STORAGES["private_media"] = {
+        "BACKEND": "storages.backends.s3.S3Storage",
+        "OPTIONS": {
+            "access_key": B2_APPLICATION_KEY_ID,
+            "secret_key": B2_APPLICATION_KEY,
+            "bucket_name": B2_MEDIA_PRIVATE_BUCKET,
+            "endpoint_url": B2_ENDPOINT_URL,
+            "region_name": B2_REGION,
+            "default_acl": None,
+            "querystring_auth": True,
+            "querystring_expire": 600,  # short-lived authorized URLs
+        },
+    }
+else:
+    STORAGES["private_media"] = {"BACKEND": "django.core.files.storage.FileSystemStorage"}
 
-# Category nesting guard. The taxonomy itself is unlimited (categories are
-# created freely in the dashboard); this only prevents absurdly deep URLs.
-MAX_CATEGORY_DEPTH = config("MAX_CATEGORY_DEPTH", default=25, cast=int)
+# Upload limits
+MAX_UPLOAD_SIZE_MB = env("MAX_UPLOAD_SIZE_MB", default=8, cast=int)
+ALLOWED_IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "image/avif"]
+MAX_IMAGE_DIMENSION = 6000
 
-# ---------------------------------------------------------------------------
-# Cache
-# ---------------------------------------------------------------------------
-# Django's default LocMemCache is per-process, so DRF throttles and cached
-# settings would be counted separately by every Gunicorn worker. Set REDIS_URL
-# in production and the cache — and therefore throttling — becomes shared.
-REDIS_URL = config("REDIS_URL", default="")
-CACHE_TIMEOUT = config("CACHE_TIMEOUT", default=300, cast=int)
+# ---------------------------------------------------------------- Cache / Redis
+REDIS_URL = env("REDIS_URL", default="")
 if REDIS_URL:
     CACHES = {
         "default": {
             "BACKEND": "django.core.cache.backends.redis.RedisCache",
             "LOCATION": REDIS_URL,
-            "TIMEOUT": CACHE_TIMEOUT,
+            "KEY_PREFIX": "starmond",
         }
     }
 else:
     CACHES = {
         "default": {
             "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-            "LOCATION": "starmond-local",
-            "TIMEOUT": CACHE_TIMEOUT,
+            "LOCATION": "starmond-dev",
         }
     }
+CACHE_TTL_SHORT = env("CACHE_TTL_SHORT", default=60, cast=int)
+CACHE_TTL_MEDIUM = env("CACHE_TTL_MEDIUM", default=300, cast=int)
+CACHE_TTL_LONG = env("CACHE_TTL_LONG", default=3600, cast=int)
 
-# ---------------------------------------------------------------------------
-# CORS / CSRF / cookies
-# ---------------------------------------------------------------------------
-CORS_ALLOWED_ORIGINS = config(
-    "CORS_ALLOWED_ORIGINS",
-    default="http://localhost:3000,http://127.0.0.1:3000,http://localhost:8000",
-    cast=Csv(),
-)
-CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_HEADERS = [
-    "accept",
-    "authorization",
-    "content-type",
-    "origin",
-    "user-agent",
-    "x-csrftoken",
-    "x-request-id",
-    "x-idempotency-key",
-    "x-cart-token",
-]
-CORS_EXPOSE_HEADERS = ["X-Request-ID", "X-Idempotent-Replay"]
+# ---------------------------------------------------------------- Celery
+CELERY_BROKER_URL = env("CELERY_BROKER_URL", default=REDIS_URL or "memory://")
+CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", default=REDIS_URL or "cache+memory://")
+CELERY_TASK_ALWAYS_EAGER = env("CELERY_TASK_ALWAYS_EAGER", default="false", cast=bool)
+CELERY_TASK_EAGER_PROPAGATES = False
+CELERY_TASK_TIME_LIMIT = 300
+CELERY_TASK_SOFT_TIME_LIMIT = 240
+CELERY_BEAT_SCHEDULE = {
+    "release-expired-inventory-reservations": {
+        "task": "apps.inventory.tasks.release_expired_reservations",
+        "schedule": 300.0,
+    },
+    "expire-stale-pending-orders": {
+        "task": "apps.orders.tasks.expire_stale_pending_orders",
+        "schedule": 600.0,
+    },
+    "retry-failed-emails": {
+        "task": "apps.emails.tasks.retry_failed_emails",
+        "schedule": 900.0,
+    },
+}
 
-CSRF_TRUSTED_ORIGINS = config(
-    "CSRF_TRUSTED_ORIGINS",
-    default="http://localhost:8000,http://localhost:3000",
-    cast=Csv(),
-)
-CSRF_COOKIE_HTTPONLY = False          # JS frontend must read it for the X-CSRFToken header
-CSRF_COOKIE_SAMESITE = config("CSRF_COOKIE_SAMESITE", default="Lax")
-CSRF_COOKIE_SECURE = config("CSRF_COOKIE_SECURE", default=False, cast=bool)
+# ---------------------------------------------------------------- Email
+EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend")
+EMAIL_HOST = env("EMAIL_HOST", default="")
+EMAIL_PORT = env("EMAIL_PORT", default=587, cast=int)
+EMAIL_USE_TLS = env("EMAIL_USE_TLS", default="true", cast=bool)
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="STARMOND TECHNOLOGY LIMITED <no-reply@starmond.example>")
+EMAIL_MAX_AUTO_ATTEMPTS = env("EMAIL_MAX_AUTO_ATTEMPTS", default=4, cast=int)
 
-SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = config("SESSION_COOKIE_SAMESITE", default="Lax")
-SESSION_COOKIE_SECURE = config("SESSION_COOKIE_SECURE", default=False, cast=bool)
-SESSION_COOKIE_AGE = config("SESSION_COOKIE_AGE", default=60 * 60 * 24 * 7, cast=int)
+# ---------------------------------------------------------------- Paystack
+PAYSTACK_PUBLIC_KEY = env("PAYSTACK_PUBLIC_KEY", default="")
+PAYSTACK_SECRET_KEY = env("PAYSTACK_SECRET_KEY", default="")
+PAYSTACK_WEBHOOK_SECRET = env("PAYSTACK_WEBHOOK_SECRET", default="")
+PAYSTACK_BASE_URL = "https://api.paystack.co"
+PAYSTACK_CURRENCY = env("PAYSTACK_CURRENCY", default="NGN")
+PAYSTACK_VERIFY_RETRIES = env("PAYSTACK_VERIFY_RETRIES", default=3, cast=int)
 
-SECURE_CONTENT_TYPE_NOSNIFF = True
-SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
-X_FRAME_OPTIONS = "DENY"
-SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+# ---------------------------------------------------------------- Business defaults
+DEFAULT_CURRENCY = env("DEFAULT_CURRENCY", default="NGN")
+INVENTORY_RESERVATION_MINUTES = env("INVENTORY_RESERVATION_MINUTES", default=30, cast=int)
+PENDING_ORDER_EXPIRY_MINUTES = env("PENDING_ORDER_EXPIRY_MINUTES", default=60, cast=int)
+MAX_CATEGORY_DEPTH = env("MAX_CATEGORY_DEPTH", default=3, cast=int)
+MAX_CART_ITEMS = env("MAX_CART_ITEMS", default=50, cast=int)
+MAX_CART_ITEM_QUANTITY = env("MAX_CART_ITEM_QUANTITY", default=100, cast=int)
+GUEST_ORDER_LINK_EXPIRY_DAYS = env("GUEST_ORDER_LINK_EXPIRY_DAYS", default=30, cast=int)
+REVIEW_COOLDOWN_SECONDS = env("REVIEW_COOLDOWN_SECONDS", default=60, cast=int)
 
-# ---------------------------------------------------------------------------
-# Paystack
-# ---------------------------------------------------------------------------
-PAYSTACK_BASE_URL = config("PAYSTACK_BASE_URL", default="https://api.paystack.co")
-PAYSTACK_PUBLIC_KEY = config("PAYSTACK_PUBLIC_KEY", default="")
-PAYSTACK_SECRET_KEY = config("PAYSTACK_SECRET_KEY", default="")
-# Paystack signs webhooks with the account secret key; an explicit override is
-# supported for accounts using a separate webhook secret.
-PAYSTACK_WEBHOOK_SECRET = config("PAYSTACK_WEBHOOK_SECRET", default="") or PAYSTACK_SECRET_KEY
-PAYSTACK_CALLBACK_URL = config("PAYSTACK_CALLBACK_URL", default=f"{FRONTEND_URL}/checkout/callback")
-PAYSTACK_MODE = config("PAYSTACK_MODE", default="test")          # "test" | "live"
-PAYSTACK_TIMEOUT_SECONDS = config("PAYSTACK_TIMEOUT_SECONDS", default=20, cast=int)
-PAYSTACK_MAX_RETRIES = config("PAYSTACK_MAX_RETRIES", default=3, cast=int)
-PAYSTACK_CHANNELS = config(
-    "PAYSTACK_CHANNELS",
-    default="card,bank,ussd,bank_transfer,qr",
-    cast=Csv(),
-)
-# Guard rail: refuse live credentials while DEBUG is on.
-PAYSTACK_ALLOW_LIVE_IN_DEBUG = config("PAYSTACK_ALLOW_LIVE_IN_DEBUG", default=False, cast=bool)
-
-# ---------------------------------------------------------------------------
-# Business rules (Section 45) — configurable, never hardcoded in views
-# ---------------------------------------------------------------------------
-ORDER_EXPIRY_MINUTES = config("ORDER_EXPIRY_MINUTES", default=60, cast=int)
-STOCK_RESERVATION_MINUTES = config("STOCK_RESERVATION_MINUTES", default=60, cast=int)
-LOW_STOCK_DEFAULT_THRESHOLD = config("LOW_STOCK_DEFAULT_THRESHOLD", default=5, cast=int)
-MAX_CART_ITEM_QUANTITY = config("MAX_CART_ITEM_QUANTITY", default=50, cast=int)
-MAX_CART_LINES = config("MAX_CART_LINES", default=50, cast=int)
-MAX_DISCOUNT_PERCENTAGE = config("MAX_DISCOUNT_PERCENTAGE", default=100, cast=int)
-REVIEW_EDIT_WINDOW_DAYS = config("REVIEW_EDIT_WINDOW_DAYS", default=30, cast=int)
-REFUND_MAX_DAYS_AFTER_DELIVERY = config("REFUND_MAX_DAYS_AFTER_DELIVERY", default=30, cast=int)
-IDEMPOTENCY_KEY_TTL_HOURS = config("IDEMPOTENCY_KEY_TTL_HOURS", default=24, cast=int)
-AUDIT_RETENTION_DAYS = config("AUDIT_RETENTION_DAYS", default=730, cast=int)
-
-# ---------------------------------------------------------------------------
-# Email
-# ---------------------------------------------------------------------------
-EMAIL_BACKEND = config(
-    "EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend"
-)
-EMAIL_HOST = config("EMAIL_HOST", default="localhost")
-EMAIL_PORT = config("EMAIL_PORT", default=587, cast=int)
-EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
-EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
-EMAIL_USE_TLS = config("EMAIL_USE_TLS", default=True, cast=bool)
-EMAIL_USE_SSL = config("EMAIL_USE_SSL", default=False, cast=bool)
-EMAIL_TIMEOUT = config("EMAIL_TIMEOUT", default=15, cast=int)
-DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="STARMOND <no-reply@starmond.com>")
-SERVER_EMAIL = config("SERVER_EMAIL", default=DEFAULT_FROM_EMAIL)
-EMAIL_FAIL_SILENTLY = config("EMAIL_FAIL_SILENTLY", default=True, cast=bool)
-
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
-LOG_LEVEL = config("LOG_LEVEL", default="INFO")
+# ---------------------------------------------------------------- Logging
+LOG_LEVEL = env("DJANGO_LOG_LEVEL", default="INFO")
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
-        "verbose": {
-            "format": "{levelname} {asctime} {name} {request_id} {message}",
-            "style": "{",
-        },
-        "simple": {"format": "{levelname} {name} {message}", "style": "{"},
-    },
-    "filters": {
-        "request_id": {"()": "apps.core.logging.RequestIDLogFilter"},
+        "verbose": {"format": "[{asctime}] {levelname} {name} {message}", "style": "{"},
     },
     "handlers": {
-        "console": {
-            "class": "logging.StreamHandler",
-            "formatter": "verbose",
-            "filters": ["request_id"],
-        },
+        "console": {"class": "logging.StreamHandler", "formatter": "verbose"},
     },
     "root": {"handlers": ["console"], "level": LOG_LEVEL},
     "loggers": {
-        "django.request": {"handlers": ["console"], "level": "ERROR", "propagate": False},
-        "apps": {"handlers": ["console"], "level": LOG_LEVEL, "propagate": False},
-        "payments": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "django.db.backends": {"level": env("DB_LOG_LEVEL", default="WARNING"), "handlers": ["console"], "propagate": False},
+        "starmond": {"level": LOG_LEVEL, "handlers": ["console"], "propagate": False},
     },
 }

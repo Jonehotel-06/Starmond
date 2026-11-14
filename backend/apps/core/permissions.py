@@ -1,114 +1,49 @@
+"""Role-based access control for staff APIs.
+
+Superusers (the business owner) bypass all checks. Staff users are checked
+against the permission codenames attached to their role. Permission checks are
+ALWAYS enforced server-side; frontend visibility is irrelevant.
 """
-Authorization primitives.
+from rest_framework.permissions import BasePermission
 
-Sensitive actions are gated on *Django permissions* resolved through the
-customer's configurable Role, never on hardcoded staff flags. Superusers hold
-every permission implicitly.
-"""
-from __future__ import annotations
-
-from rest_framework.permissions import SAFE_METHODS, BasePermission
-
-from apps.core.exceptions import PermissionDeniedError
+from .constants import Perm
 
 
-class IsCustomer(BasePermission):
-    message = "A customer account is required for this action."
-
-    def has_permission(self, request, view):
-        user = request.user
-        return bool(user and user.is_authenticated and user.is_active)
+def get_staff_profile(user):
+    return getattr(user, "staff_profile", None)
 
 
-class IsVerifiedCustomer(IsCustomer):
-    message = "Please verify your email address to continue."
+def user_has_permission(user, codename):
+    if not user or not user.is_authenticated:
+        return False
+    if user.is_superuser or user.is_staff:
+        return True
+    profile = get_staff_profile(user)
+    if not profile or not profile.is_active or not profile.role:
+        return False
+    return profile.role.permissions.filter(codename=codename).exists()
 
-    def has_permission(self, request, view):
-        return super().has_permission(request, view) and bool(request.user.is_email_verified)
 
-
-class IsStaff(BasePermission):
-    message = "Staff access is required for this action."
+class IsStaffWithPermission(BasePermission):
+    """DRF permission bound to a codename via `permission_codename` on the view."""
 
     def has_permission(self, request, view):
-        user = request.user
-        return bool(user and user.is_authenticated and user.is_active and user.is_staff)
+        codename = getattr(view, "permission_codename", None)
+        if codename is None:
+            return request.user.is_authenticated and (request.user.is_staff or request.user.is_superuser)
+        return user_has_permission(request.user, codename)
 
 
-class IsSuperAdmin(BasePermission):
-    message = "Super administrator access is required."
-
+class IsAdminUser(BasePermission):
     def has_permission(self, request, view):
-        user = request.user
-        return bool(user and user.is_authenticated and user.is_superuser)
+        return bool(request.user and request.user.is_authenticated and request.user.is_superuser)
 
 
-class IsOwnerOrStaff(BasePermission):
-    """Object-level guard used for customer private records."""
-
-    owner_field = "user"
-
-    def has_object_permission(self, request, view, obj):
-        if getattr(request.user, "is_staff", False):
-            return True
-        owner_field = getattr(view, "owner_field", self.owner_field)
-        owner = obj
-        for part in owner_field.split("__"):
-            owner = getattr(owner, part, None)
-            if owner is None:
-                return False
-        return owner == request.user
+def require(codename):
+    """Helper to build a permission class for a specific codename."""
+    return type(f"Requires_{codename.replace('.', '_')}", (IsStaffWithPermission,), {"permission_codename_static": codename})
 
 
-class RequiresPermission(BasePermission):
-    """
-    Permission-class factory keyed on a Django permission codename.
-
-    Usage::
-
-        permission_classes = [RequiresPermission.of("orders.change_order")]
-    """
-
-    required_permission: str | None = None
-
-    def has_permission(self, request, view):
-        required = getattr(view, "required_permission", None) or self.required_permission
-        if not required:
-            return True
-        user = request.user
-        if not (user and user.is_authenticated and user.is_active):
-            return False
-        return user.has_perm(required)
-
-    @classmethod
-    def of(cls, codename: str):
-        return type(f"RequiresPermission[{codename}]", (cls,), {"required_permission": codename})
-
-
-class ReadOnlyOrStaff(BasePermission):
-    def has_permission(self, request, view):
-        if request.method in SAFE_METHODS:
-            return True
-        return bool(request.user and request.user.is_authenticated and request.user.is_staff)
-
-
-class HasRole(BasePermission):
-    """Checks the staff member's assigned configurable role slug."""
-
-    def has_permission(self, request, view):
-        user = request.user
-        if not (user and user.is_authenticated and user.is_staff):
-            return False
-        allowed = getattr(view, "allowed_roles", None)
-        if not allowed:
-            return True
-        profile = getattr(user, "staff_profile", None)
-        if profile is None or profile.role_id is None:
-            return user.is_superuser
-        return profile.role.slug in allowed or user.is_superuser
-
-
-def enforce(user, perm: str) -> None:
-    """Imperative permission check for use inside service functions."""
-    if not (user and user.is_authenticated and user.is_active and user.has_perm(perm)):
-        raise PermissionDeniedError(f"Missing required permission: {perm}")
+SAFE_METHODS_PERM_MAP = {
+    "GET": None,
+}

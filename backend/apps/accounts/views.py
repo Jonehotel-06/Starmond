@@ -1,260 +1,170 @@
-"""Authentication and account management endpoints."""
-from __future__ import annotations
-
-from django.conf import settings
+from django.contrib.auth import login, logout
+from django.contrib.auth.tokens import default_token_generator
 from django.utils import timezone
-from rest_framework import serializers, status
+from rest_framework import status
+from rest_framework.authtoken.models import Token
+from rest_framework.decorators import action
+from rest_framework.generics import RetrieveUpdateAPIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
-from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework.views import APIView
 
-from apps.accounts.services import AccountService
-from apps.core.views import BaseAPIView, client_ip
-from apps.customers.models import OneTimeToken
+from apps.audit.services import AuditService
+from services.notification_service import NotificationService
 
-
-class RegisterSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    password = serializers.CharField(write_only=True, min_length=10, max_length=128)
-    confirm_password = serializers.CharField(write_only=True)
-    first_name = serializers.CharField(max_length=80, required=False, allow_blank=True)
-    last_name = serializers.CharField(max_length=80, required=False, allow_blank=True)
-    phone = serializers.CharField(max_length=16, required=False, allow_blank=True)
-    marketing_opt_in = serializers.BooleanField(default=False)
-
-    def validate(self, attrs):
-        if attrs["password"] != attrs["confirm_password"]:
-            raise serializers.ValidationError({"confirm_password": ["Passwords do not match."]})
-        return attrs
+from .models import User
+from .serializers import (
+    EMAIL_VERIFY_SALT,
+    EmailVerifySerializer,
+    LoginSerializer,
+    PasswordChangeSerializer,
+    PasswordResetConfirmSerializer,
+    PasswordResetRequestSerializer,
+    RegisterSerializer,
+    UserSerializer,
+    make_email_verify_token,
+)
 
 
-class LoginSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    password = serializers.CharField(write_only=True)
+def _auth_payload(user):
+    token, _ = Token.objects.get_or_create(user=user)
+    return {
+        "status": "success",
+        "data": {"user": UserSerializer(user).data, "auth_token": token.key},
+    }
 
 
-class EmailSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+from drf_spectacular.utils import OpenApiTypes, extend_schema
 
-
-class TokenSerializer(serializers.Serializer):
-    token = serializers.CharField()
-
-
-class ResetPasswordSerializer(serializers.Serializer):
-    token = serializers.CharField()
-    new_password = serializers.CharField(write_only=True, min_length=10, max_length=128)
-    confirm_password = serializers.CharField(write_only=True)
-
-    def validate(self, attrs):
-        if attrs["new_password"] != attrs["confirm_password"]:
-            raise serializers.ValidationError({"confirm_password": ["Passwords do not match."]})
-        return attrs
-
-
-class ChangePasswordSerializer(serializers.Serializer):
-    current_password = serializers.CharField(write_only=True)
-    new_password = serializers.CharField(write_only=True, min_length=10, max_length=128)
-    confirm_password = serializers.CharField(write_only=True)
-
-    def validate(self, attrs):
-        if attrs["new_password"] != attrs["confirm_password"]:
-            raise serializers.ValidationError({"confirm_password": ["Passwords do not match."]})
-        return attrs
-
-
-class ProfileUpdateSerializer(serializers.Serializer):
-    first_name = serializers.CharField(max_length=80, required=False, allow_blank=True)
-    last_name = serializers.CharField(max_length=80, required=False, allow_blank=True)
-    phone = serializers.CharField(max_length=16, required=False, allow_blank=True)
-    gender = serializers.CharField(max_length=20, required=False, allow_blank=True)
-    marketing_opt_in = serializers.BooleanField(required=False)
-    notify_order_updates = serializers.BooleanField(required=False)
-    notify_promotions = serializers.BooleanField(required=False)
-    notify_newsletter = serializers.BooleanField(required=False)
-    notify_sms = serializers.BooleanField(required=False)
-
-
-def issue_tokens(user) -> dict:
-    refresh = RefreshToken.for_user(user)
-    refresh["email"] = user.email
-    refresh["is_staff"] = user.is_staff
-    return {"access": str(refresh.access_token), "refresh": str(refresh)}
-
-
-class RegisterView(BaseAPIView):
+@extend_schema(request=RegisterSerializer, responses={201: OpenApiTypes.OBJECT}, tags=["auth"])
+class RegisterView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "auth"
+    throttle_scope = "auth_action"
 
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
-
-        user, _token = AccountService.register(
-            email=data["email"],
-            password=data["password"],
-            first_name=data.get("first_name", ""),
-            last_name=data.get("last_name", ""),
-            phone=data.get("phone", ""),
-            marketing_opt_in=data.get("marketing_opt_in", False),
-            request=request,
-        )
-        payload = issue_tokens(user)
-        payload["user"] = AccountService.profile_payload(user)
-        return self.created(
-            payload,
-            message=(
-                "Account created. Please check your email to verify your address."
-            ),
+        user = serializer.save()
+        NotificationService.send_email_verification(user, request)
+        AuditService.log(None, "auth.register", "User", user.pk, {"email": user.email}, request=request)
+        return Response(
+            {"status": "success", "message": "Account created. Please verify your email.", "data": {"user_id": user.pk}},
+            status=status.HTTP_201_CREATED,
         )
 
 
-class LoginView(BaseAPIView):
+@extend_schema(request=EmailVerifySerializer, responses=OpenApiTypes.OBJECT, tags=["auth"])
+class EmailVerifyView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "auth"
+    throttle_scope = "auth_action"
 
     def post(self, request):
-        serializer = LoginSerializer(data=request.data)
+        serializer = EmailVerifySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user = AccountService.authenticate(
-            email=serializer.validated_data["email"],
-            password=serializer.validated_data["password"],
-            ip=client_ip(request),
-        )
-        request.session["_auth_user_id"] = str(user.pk)
-        payload = issue_tokens(user)
-        payload["user"] = AccountService.profile_payload(user)
-
-        # Merge any guest cart the visitor built before signing in.
-        merge_info = {}
-        try:
-            from apps.cart.services import CartService
-
-            _cart, merge_info = CartService.merge_guest_cart(request, user)
-        except Exception:  # pragma: no cover - never block a login on cart merge
-            merge_info = {}
-
-        return self.ok(payload, message="Signed in.", cart_merged=merge_info)
+        user = serializer.user
+        if not user.is_email_verified:
+            user.is_email_verified = True
+            user.save(update_fields=["is_email_verified"])
+        return Response({"status": "success", "message": "Email verified."})
 
 
-class LogoutView(BaseAPIView):
+@extend_schema(request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT, tags=["auth"])
+class ResendVerificationView(APIView):
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_action"
+
+    def post(self, request):
+        email = (request.data.get("email") or "").lower()
+        user = User.objects.filter(email=email).first()
+        # Always return success to avoid account enumeration.
+        if user and not user.is_email_verified:
+            NotificationService.send_email_verification(user, request)
+        return Response({"status": "success", "message": "If the account exists and is unverified, a new link was sent."})
+
+
+@extend_schema(request=LoginSerializer, responses=OpenApiTypes.OBJECT, tags=["auth"])
+class LoginView(APIView):
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_action"
+
+    def post(self, request):
+        serializer = LoginSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data["user"]
+        login(request, user)
+        return Response(_auth_payload(user))
+
+
+@extend_schema(request=None, responses=OpenApiTypes.OBJECT, tags=["auth"])
+class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        refresh = request.data.get("refresh")
-        if refresh:
-            try:
-                RefreshToken(refresh).blacklist()
-            except Exception:
-                pass
-        from apps.audit.services import AuditService
-
-        AuditService.record(
-            action="logout", entity_type="user", entity_id=request.user.pk, actor=request.user,
-            summary="Signed out",
-        )
-        try:
-            from django.contrib.auth import logout
-
-            logout(request)
-        except Exception:
-            pass
-        return self.ok(message="Signed out.")
+        Token.objects.filter(user=request.user).delete()
+        logout(request)
+        return Response({"status": "success", "message": "Logged out."})
 
 
-class MeView(BaseAPIView):
+@extend_schema(request=PasswordResetRequestSerializer, responses=OpenApiTypes.OBJECT, tags=["auth"])
+class PasswordResetRequestView(APIView):
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_action"
+
+    def post(self, request):
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = User.objects.filter(email=serializer.validated_data["email"].lower()).first()
+        if user and user.is_active:
+            uid = PasswordResetConfirmSerializer.make_uid(user)
+            token = default_token_generator.make_token(user)
+            NotificationService.send_password_reset(user, uid, token, request)
+        # Anti-enumeration: identical response either way.
+        return Response({"status": "success", "message": "If an account exists for that email, a reset link has been sent."})
+
+
+@extend_schema(request=PasswordResetConfirmSerializer, responses=OpenApiTypes.OBJECT, tags=["auth"])
+class PasswordResetConfirmView(APIView):
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_action"
+
+    def post(self, request):
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data["user"]
+        user.set_password(serializer.validated_data["new_password"])
+        user.save(update_fields=["password"])
+        Token.objects.filter(user=user).delete()  # revoke existing API tokens
+        return Response({"status": "success", "message": "Password reset. Please log in again."})
+
+
+@extend_schema(request=PasswordChangeSerializer, responses=OpenApiTypes.OBJECT, tags=["auth"])
+class PasswordChangeView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
-        return self.ok(AccountService.profile_payload(request.user))
-
-    def patch(self, request):
-        serializer = ProfileUpdateSerializer(data=request.data, partial=True)
+    def post(self, request):
+        serializer = PasswordChangeSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
         user = request.user
-
-        for field in ("first_name", "last_name", "phone", "gender", "marketing_opt_in"):
-            if field in data:
-                setattr(user, field, data[field])
-        user.save()
-
-        profile = getattr(user, "customer_profile", None)
-        if profile is not None:
-            for field in ("notify_order_updates", "notify_promotions",
-                          "notify_newsletter", "notify_sms"):
-                if field in data:
-                    setattr(profile, field, data[field])
-            profile.save()
-
-        return self.ok(AccountService.profile_payload(user), message="Profile updated.")
+        user.set_password(serializer.validated_data["new_password"])
+        user.save(update_fields=["password"])
+        Token.objects.filter(user=user).exclude(key=Token.objects.get_or_create(user=user)[0].key).delete()
+        return Response({"status": "success", "message": "Password changed."})
 
 
-class VerifyEmailView(BaseAPIView):
-    permission_classes = [AllowAny]
-    throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "auth"
-
-    def post(self, request):
-        serializer = TokenSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = AccountService.verify_email(serializer.validated_data["token"])
-        return self.ok({"email": user.email}, message="Your email address is verified.")
-
-
-class ResendVerificationView(BaseAPIView):
+@extend_schema(tags=["auth"])
+class MeView(RetrieveUpdateAPIView):
     permission_classes = [IsAuthenticated]
-    throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "auth"
+    serializer_class = UserSerializer
 
-    def post(self, request):
-        AccountService.resend_verification(request.user)
-        return self.ok(message="If your address is unverified, a new link is on its way.")
+    def get_object(self):
+        return self.request.user
 
-
-class PasswordResetRequestView(BaseAPIView):
-    permission_classes = [AllowAny]
-    throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "auth"
-
-    def post(self, request):
-        serializer = EmailSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        AccountService.request_password_reset(serializer.validated_data["email"])
-        return self.ok(
-            message="If an account exists for that address, a reset link has been sent."
-        )
-
-
-class PasswordResetConfirmView(BaseAPIView):
-    permission_classes = [AllowAny]
-    throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "auth"
-
-    def post(self, request):
-        serializer = ResetPasswordSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        AccountService.reset_password(
-            raw_token=serializer.validated_data["token"],
-            new_password=serializer.validated_data["new_password"],
-        )
-        return self.ok(message="Your password has been reset. You can now sign in.")
-
-
-class PasswordChangeView(BaseAPIView):
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "auth"
-
-    def post(self, request):
-        serializer = ChangePasswordSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        AccountService.change_password(
-            user=request.user,
-            current_password=serializer.validated_data["current_password"],
-            new_password=serializer.validated_data["new_password"],
-        )
-        return self.ok(message="Password changed successfully.")
+    def retrieve(self, request, *args, **kwargs):
+        return Response({"status": "success", "data": self.get_serializer(self.get_object()).data})

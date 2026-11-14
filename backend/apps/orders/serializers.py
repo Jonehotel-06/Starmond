@@ -1,184 +1,124 @@
-"""Order serializers — customer-facing plus staff-facing variants."""
-from __future__ import annotations
-
 from rest_framework import serializers
 
-from apps.core.utils import money
-from apps.orders.models import Order, OrderActivity, OrderItem
+from .models import Order, OrderItem, OrderStatusLog
 
 
 class OrderItemSerializer(serializers.ModelSerializer):
-    display_name = serializers.CharField(read_only=True)
-    unit_price = serializers.SerializerMethodField()
-    line_total = serializers.SerializerMethodField()
-    refundable_quantity = serializers.IntegerField(read_only=True)
-    image = serializers.SerializerMethodField()
+    variation_options = serializers.JSONField(source="variation.options", read_only=True, default=None)
 
     class Meta:
         model = OrderItem
-        fields = ["id", "product", "product_name", "variation_label", "sku", "display_name",
-                  "unit_price", "quantity", "line_subtotal", "line_total",
-                  "discount_allocated", "refunded_quantity", "refundable_quantity",
-                  "is_fully_refunded", "custom_order_details", "image"]
-
-    def get_unit_price(self, obj):
-        return str(money(obj.unit_price))
-
-    def get_line_total(self, obj):
-        return str(money(obj.line_total))
-
-    def get_image(self, obj):
-        try:
-            image = obj.product.primary_image
-            return image.image.url if image else None
-        except Exception:
-            return None
+        fields = ["id", "product", "product_name", "sku", "variation", "variation_label",
+                  "variation_options", "unit_price", "quantity", "line_total", "customization",
+                  "reference_image"]
 
 
-class OrderActivitySerializer(serializers.ModelSerializer):
+class OrderStatusLogSerializer(serializers.ModelSerializer):
+    actor_email = serializers.CharField(source="actor.email", read_only=True, default=None)
+
     class Meta:
-        model = OrderActivity
-        fields = ["id", "event", "message", "actor_label", "metadata", "created_at"]
+        model = OrderStatusLog
+        fields = ["from_status", "to_status", "actor_email", "note", "created_at"]
 
 
 class OrderSummarySerializer(serializers.ModelSerializer):
-    item_count = serializers.IntegerField(read_only=True)
-    status_label = serializers.CharField(read_only=True)
-    total = serializers.SerializerMethodField()
+    item_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
-        fields = ["order_number", "status", "status_label", "payment_status", "total",
-                  "currency", "item_count", "created_at", "paid_at", "progress"]
-        read_only_fields = fields
+        fields = ["reference", "status", "payment_status", "currency", "subtotal_amount",
+                  "discount_amount", "shipping_fee", "total_amount", "item_count",
+                  "shipping_method_name", "delivery_state", "placed_at", "paid_at"]
 
-    total = serializers.SerializerMethodField()
-    progress = serializers.SerializerMethodField()
-
-    def get_total(self, obj):
-        return str(money(obj.grand_total))
-
-    def get_progress(self, obj):
-        return obj.fulfilment_progress
+    def get_item_count(self, obj):
+        return sum(i.quantity for i in obj.items.all())
 
 
 class OrderDetailSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
-    activities = serializers.SerializerMethodField()
-    shipping = serializers.SerializerMethodField()
-    payments = serializers.SerializerMethodField()
-    refunds = serializers.SerializerMethodField()
-    tracking = serializers.SerializerMethodField()
+    delivery = serializers.SerializerMethodField()
+    contact = serializers.SerializerMethodField()
+    totals = serializers.SerializerMethodField()
+    fulfilment = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
-        fields = [
-            "order_number", "channel", "status", "payment_status", "currency",
-            "subtotal", "discount_total", "shipping_total", "tax_total", "grand_total",
-            "amount_paid", "amount_refunded", "amount_due", "applied_promotion_codes",
-            "items", "shipping", "payments", "refunds", "activities", "tracking",
-            "customer_note", "created_at", "paid_at", "expires_at", "delivered_at",
-            "completed_at", "cancelled_at", "cancellation_reason",
-        ]
-        read_only_fields = fields
+        fields = ["reference", "status", "payment_status", "source", "currency", "items",
+                  "delivery", "contact", "totals", "fulfilment", "promotion_code_snapshot",
+                  "placed_at", "paid_at", "shipped_at", "delivered_at", "completed_at",
+                  "cancelled_at", "expires_at"]
 
-    def get_activities(self, obj):
-        rows = obj.activities.filter(is_customer_visible=True)[:50]
-        return OrderActivitySerializer(rows, many=True).data
-
-    def get_shipping(self, obj):
+    def get_delivery(self, obj):
         return {
-            "full_name": obj.shipping_full_name,
-            "phone": obj.shipping_phone,
-            "email": obj.shipping_email,
-            "address_line": obj.shipping_address_line,
-            "apartment": obj.shipping_apartment,
-            "city": obj.shipping_city,
-            "state": obj.shipping_state,
-            "lga": obj.shipping_lga,
-            "postal_code": obj.shipping_postal_code,
-            "country": obj.shipping_country,
-            "method": obj.shipping_method_name,
-            "is_pickup": obj.is_pickup,
-            "estimated_days_min": obj.estimated_delivery_days_min,
-            "estimated_days_max": obj.estimated_delivery_days_max,
-            "delivery_instructions": obj.delivery_instructions,
+            "full_name": obj.delivery_full_name, "phone": obj.delivery_phone,
+            "state": obj.delivery_state, "city": obj.delivery_city, "street": obj.delivery_street,
+            "details": obj.delivery_details, "instructions": obj.delivery_instructions,
+            "method": obj.shipping_method_name, "method_kind": obj.shipping_method_kind,
+            "estimate": obj.shipping_estimate, "tracking_reference": obj.tracking_reference,
+            "notes": obj.delivery_notes,
         }
 
-    def get_payments(self, obj):
-        return [
-            {"reference": p.reference, "status": p.status, "amount": str(money(p.amount)),
-             "verified": p.is_verified, "paid_at": p.paid_at}
-            for p in obj.payments.order_by("-created_at")
-        ]
+    def get_contact(self, obj):
+        return {"full_name": obj.contact_full_name, "email": obj.contact_email, "phone": obj.contact_phone}
 
-    def get_refunds(self, obj):
-        return [
-            {"refund_number": r.refund_number, "status": r.status,
-             "amount_requested": str(money(r.amount_requested)),
-             "amount_refunded": str(money(r.amount_refunded)),
-             "created_at": r.created_at}
-            for r in obj.refunds.order_by("-created_at")
-        ]
+    def get_totals(self, obj):
+        return {
+            "subtotal": str(obj.subtotal_amount), "discount": str(obj.discount_amount),
+            "shipping_fee": str(obj.shipping_fee), "total": str(obj.total_amount),
+            "refunded": str(obj.total_refunded), "currency": obj.currency,
+        }
 
-    def get_tracking(self, obj):
-        from apps.shipping.services import ShippingService
-
-        return ShippingService.track(obj)
+    def get_fulfilment(self, obj):
+        return {"status": obj.status, "tracking_reference": obj.tracking_reference,
+                "delivered_at": obj.delivered_at, "shipped_at": obj.shipped_at}
 
 
-class StaffOrderSerializer(OrderDetailSerializer):
-    customer_email = serializers.CharField(read_only=True)
-    customer_name = serializers.CharField(read_only=True)
-    internal_note = serializers.CharField(read_only=True)
+class OrderStaffSerializer(OrderDetailSerializer):
+    customer_email = serializers.CharField(source="customer.email", read_only=True, default=None)
+    status_history = OrderStatusLogSerializer(source="status_logs", many=True, read_only=True)
+    internal_notes = serializers.CharField(read_only=True)
+    payments = serializers.SerializerMethodField()
 
     class Meta(OrderDetailSerializer.Meta):
         fields = OrderDetailSerializer.Meta.fields + [
-            "customer_email", "customer_name", "internal_note", "source_ip",
-            "idempotency_key", "stock_committed_at", "updated_at",
+            "id", "customer", "customer_email", "internal_notes", "status_history", "payments"]
+
+    def get_payments(self, obj):
+        return [
+            {"reference": p.reference, "provider_reference": p.provider_reference, "amount": str(p.amount),
+             "status": p.status, "channel": p.channel, "initialized_at": p.initialized_at,
+             "verified_at": p.verified_at, "failure_reason": p.failure_reason}
+            for p in obj.payments.all()
         ]
-        read_only_fields = fields
 
 
 class CheckoutSerializer(serializers.Serializer):
-    """Shared payload for both cart checkout and Buy Now."""
+    contact = serializers.DictField(required=False, default=dict,
+        help_text='Guest: {"full_name","email","phone"}. Ignored for authenticated customers.')
+    delivery = serializers.DictField(
+        help_text='{"full_name","phone","state","city","street","details","instructions","shipping_method_id"}')
+    source = serializers.DictField(required=False, default=dict,
+        help_text='{"type":"cart","cart_token":...} or {"type":"buy_now","product_id":..,"variation_id":..,"quantity":..,"customization":{}}')
+    promotion_code = serializers.CharField(required=False, allow_blank=True, max_length=40)
+    cart_token = serializers.CharField(required=False, allow_blank=True, max_length=64)
+    idempotency_key = serializers.CharField(required=False, allow_blank=True, max_length=80)
 
-    full_name = serializers.CharField(max_length=150)
-    phone = serializers.CharField(max_length=16)
-    address_line = serializers.CharField(max_length=255)
-    apartment = serializers.CharField(max_length=120, required=False, allow_blank=True)
-    city = serializers.CharField(max_length=80)
-    state = serializers.CharField(max_length=80)
-    lga = serializers.CharField(max_length=80, required=False, allow_blank=True)
-    postal_code = serializers.CharField(max_length=20, required=False, allow_blank=True)
-    country = serializers.CharField(max_length=80, required=False, default="Nigeria")
-    delivery_instructions = serializers.CharField(required=False, allow_blank=True, max_length=2000)
-    email = serializers.EmailField(required=False, allow_blank=True)
-    customer_note = serializers.CharField(required=False, allow_blank=True, max_length=2000)
-    shipping_method_code = serializers.CharField(required=False, allow_blank=True)
-    promo_codes = serializers.ListField(
-        child=serializers.CharField(max_length=40), required=False
-    )
-    idempotency_key = serializers.CharField(required=False, allow_blank=True, max_length=255)
-
-    def to_shipping(self) -> dict:
-        d = self.validated_data
-        return {
-            "full_name": d["full_name"],
-            "phone": d["phone"],
-            "address_line": d["address_line"],
-            "apartment": d.get("apartment", ""),
-            "city": d["city"],
-            "state": d["state"],
-            "lga": d.get("lga", ""),
-            "postal_code": d.get("postal_code", ""),
-            "country": d.get("country", "Nigeria"),
-            "delivery_instructions": d.get("delivery_instructions", ""),
-        }
+    def validate_source(self, value):
+        stype = value.get("type", "cart")
+        if stype not in ("cart", "buy_now"):
+            raise serializers.ValidationError('source.type must be "cart" or "buy_now".')
+        if stype == "buy_now" and not value.get("product_id"):
+            raise serializers.ValidationError("source.product_id is required for Buy Now.")
+        value["type"] = stype
+        return value
 
 
-class BuyNowSerializer(CheckoutSerializer):
-    product_id = serializers.UUIDField()
-    variation_id = serializers.UUIDField(required=False, allow_null=True)
-    quantity = serializers.IntegerField(min_value=1, max_value=50, default=1)
-    custom_order_details = serializers.JSONField(required=False)
+class OrderStatusUpdateSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=Order.Status.choices)
+    note = serializers.CharField(max_length=255, required=False, allow_blank=True, default="")
+    tracking_reference = serializers.CharField(max_length=120, required=False, allow_blank=True)
+
+
+class GuestLookupSerializer(serializers.Serializer):
+    reference = serializers.CharField(max_length=32)
+    email = serializers.EmailField()

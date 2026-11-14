@@ -1,0 +1,40 @@
+# Production: gunicorn API, workers, beat. MySQL/Redis are expected as
+# managed services or dedicated containers with credentials injected via the
+# environment (never baked into images). Frontend is deployed separately.
+name: starmond-backend-prod
+
+services:
+  api:
+    build: .
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.production
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py seed_roles &&
+             python manage.py collectstatic --noinput &&
+             gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4 --timeout 60"
+    restart: always
+    ports:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  worker:
+    build: .
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.production
+    command: celery -A config worker -l warning --concurrency=4
+    restart: always
+
+  beat:
+    build: .
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.production
+    command: celery -A config beat -l warning
+    restart: always

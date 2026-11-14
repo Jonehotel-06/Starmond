@@ -1,272 +1,227 @@
-"""
-Payments: initialisation, verification, amount/currency validation, webhook
-signature checks, duplicate delivery and replay protection.
-"""
-from __future__ import annotations
-
 import hashlib
 import hmac
 import json
-from decimal import Decimal
-from unittest.mock import patch
 
 from django.conf import settings
-from django.test import TestCase
-from django.utils import timezone
+from django.test import override_settings
 
-from apps.cart.models import Cart
-from apps.cart.services import CartService
-from apps.core.exceptions import ConflictError, PaymentError
-from apps.inventory.models import Inventory
-from apps.orders.checkout import CheckoutService
+from apps.core.money import naira_to_kobo
 from apps.orders.models import Order
 from apps.payments.models import Payment, PaymentWebhookEvent
-from apps.payments.paystack import PaystackResponse, PaystackService
-from apps.payments.services import PaymentService
-from tests.factories import (
-    make_customer, make_product, make_shipping_zone, paystack_success_payload, shipping_payload,
-)
+
+from .base import StarmondAPITestCase
+
+WEBHOOK_SECRET = "whsec_test_123"
 
 
-def ok_response(payload: dict) -> PaystackResponse:
-    return PaystackResponse(ok=True, status_code=200, message="ok",
-                            data=payload.get("data", {}), raw=payload)
+def _sign(body: bytes) -> str:
+    return hmac.new(WEBHOOK_SECRET.encode(), body, hashlib.sha512).hexdigest()
 
 
-def sign(body: bytes, secret: str) -> str:
-    return hmac.new(secret.encode(), body, hashlib.sha512).hexdigest()
-
-
-class PaymentTestCase(TestCase):
+@override_settings(PAYSTACK_SECRET_KEY="sk_test_x", PAYSTACK_WEBHOOK_SECRET=WEBHOOK_SECRET,
+                   PAYSTACK_PUBLIC_KEY="pk_test_x", EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class PaystackPaymentTests(StarmondAPITestCase):
     def setUp(self):
-        make_shipping_zone()
-        self.customer = make_customer()
-        product = make_product(price="10000.00", stock=10)
-        cart = Cart.objects.create(user=self.customer)
-        CartService.add_item(cart, product_id=product.pk, quantity=2)
-        self.order = CheckoutService.checkout_cart(
-            cart=cart, shipping=shipping_payload(), customer=self.customer,
-            idempotency_key="key-payment-setup",
-        ).order
-        self.product = product
+        super().setUp()
+        self.product = self.make_product(name="Iron", sku="IRN-1", price="12000.00", stock=6)
+        self.zone, self.method = self.make_shipping("Lagos", fee="1500.00")
+        self.payload = self.checkout_payload(self.product, quantity=2, shipping_method=self.method)
+        response = self.client.post("/api/checkout/", self.payload, format="json")
+        self.order_data = response.data["data"]
+        self.order = Order.objects.get(reference=self.order_data["reference"])
+        self.assertEqual(self.order.total_amount.to_eng_string(), "25500.00")
 
-    def _initialise(self):
-        with patch.object(PaystackService, "initialize_transaction") as init:
-            init.return_value = ok_response({
-                "status": True,
-                "data": {
-                    "authorization_url": "https://checkout.paystack.com/abc123",
-                    "access_code": "abc123",
-                    "reference": "placeholder",
-                },
-            })
-            payload = PaymentService.initialize_order_payment(self.order)
-        payment = Payment.objects.get(pk=payload["payment_id"])
-        return payment, payload
-
-
-class PaymentInitialisationTests(PaymentTestCase):
-    def test_initialisation_creates_pending_payment(self):
-        payment, payload = self._initialise()
-        self.assertEqual(payment.status, Payment.Status.PENDING)
-        self.assertEqual(payment.amount, Decimal("21800.00"))
-        self.assertEqual(payment.amount_kobo, 2180000)
-        self.assertIn("authorization_url", payload)
+    def _initialize(self):
         self.order.refresh_from_db()
-        self.assertEqual(self.order.payment_status, Order.PaymentStatus.PENDING)
+        with self.mock_paystack():
+            return self.client.post("/api/payments/paystack/initialize/", {
+                "order_reference": self.order.reference,
+                "guest_token": self.order.guest_access_token}, format="json")
 
-    def test_secret_key_is_never_returned(self):
-        _payment, payload = self._initialise()
-        serialised = json.dumps(payload)
-        self.assertNotIn(settings.PAYSTACK_SECRET_KEY, serialised)
-        self.assertIn("public_key", payload)
+    def test_initialize_returns_authorization_url_and_records_payment(self):
+        response = self._initialize()
+        self.assertEqual(response.status_code, 200, response.data)
+        data = response.data["data"]
+        self.assertTrue(data["authorization_url"].startswith("https://"))
+        payment = Payment.objects.get(provider_reference=data["provider_reference"])
+        self.assertEqual(payment.amount, self.order.total_amount)
+        self.assertEqual(payment.status, Payment.Status.PENDING)
 
-    def test_paid_order_cannot_be_initialised_again(self):
-        payment, _ = self._initialise()
-        payment.status = Payment.Status.SUCCESS
-        payment.is_verified = True
-        payment.save()
-        self.order.payment_status = Order.PaymentStatus.PAID
-        self.order.save(update_fields=["payment_status"])
-        with self.assertRaises(ConflictError):
-            PaymentService.initialize_order_payment(self.order)
+    def test_initialize_reuses_pending_payment(self):
+        r1 = self._initialize()
+        r2 = self._initialize()
+        self.assertEqual(r1.data["data"]["provider_reference"], r2.data["data"]["provider_reference"])
+        self.assertEqual(Payment.objects.count(), 1)
 
-    def test_second_initialisation_reuses_the_open_attempt(self):
-        first, payload1 = self._initialise()
-        with patch.object(PaystackService, "initialize_transaction") as init:
-            payload2 = PaymentService.initialize_order_payment(self.order)
-            init.assert_not_called()
-        self.assertEqual(payload1["payment_id"], payload2["payment_id"])
-        self.assertTrue(payload2["reused_existing_attempt"])
-        self.assertEqual(Payment.objects.filter(order=self.order).count(), 1)
-
-    def test_live_keys_are_refused_outside_live_mode(self):
-        with self.settings(PAYSTACK_SECRET_KEY="sk_live_abc", PAYSTACK_MODE="test"):
-            with self.assertRaises(PaymentError):
-                PaystackService.assert_credential_mode()
-
-
-class PaymentVerificationTests(PaymentTestCase):
-    def test_successful_verification_settles_the_order(self):
-        payment, _ = self._initialise()
-        body = paystack_success_payload(payment.reference, 2180000)
-        with patch.object(PaystackService, "verify_transaction", return_value=ok_response(body)):
-            result = PaymentService.verify_payment(payment.reference)
-
-        self.assertTrue(result.is_successful)
-        self.assertTrue(result.is_verified)
+    def test_verify_success_marks_order_paid_and_confirms_stock(self):
+        init = self._initialize()
+        provider_ref = init.data["data"]["provider_reference"]
+        kobo = naira_to_kobo(self.order.total_amount)
+        with self.mock_paystack(verify={"status": True, "data": {
+                "status": "success", "reference": provider_ref, "amount": int(kobo),
+                "currency": "NGN", "channel": "card", "id": 4242, "gateway_response": "Successful"}}):
+            response = self.client.post("/api/payments/paystack/verify/", {
+                "reference": provider_ref, "guest_token": self.order.guest_access_token}, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
         self.order.refresh_from_db()
         self.assertEqual(self.order.payment_status, Order.PaymentStatus.PAID)
         self.assertEqual(self.order.status, Order.Status.PAID)
-        self.assertEqual(self.order.amount_paid, Decimal("21800.00"))
+        payment = Payment.objects.get(provider_reference=provider_ref)
+        self.assertEqual(payment.status, Payment.Status.SUCCESSFUL)
+        self.assertIsNotNone(payment.verified_at)
+        from apps.inventory.services import InventoryService
+        inventory = InventoryService.resolve_inventory(self.product, None)
+        self.assertEqual(inventory.on_hand, 4)   # 6 - 2 sold
+        self.assertEqual(inventory.reserved, 0)  # reservation finalized
 
-    def test_successful_payment_commits_inventory(self):
-        payment, _ = self._initialise()
-        body = paystack_success_payload(payment.reference, 2180000)
-        with patch.object(PaystackService, "verify_transaction", return_value=ok_response(body)):
-            PaymentService.verify_payment(payment.reference)
-        inventory = Inventory.objects.get(product=self.product, variation=None)
-        self.assertEqual(inventory.quantity_on_hand, 8)
-        self.assertEqual(inventory.quantity_reserved, 0)
-        self.assertEqual(inventory.quantity_sold, 2)
+    def test_verify_is_idempotent(self):
+        init = self._initialize()
+        provider_ref = init.data["data"]["provider_reference"]
+        kobo = int(naira_to_kobo(self.order.total_amount))
+        verify_payload = {"status": True, "data": {"status": "success", "reference": provider_ref,
+                          "amount": kobo, "currency": "NGN", "id": 1}}
+        payload = {"reference": provider_ref, "guest_token": self.order.guest_access_token}
+        with self.mock_paystack(verify=verify_payload):
+            self.client.post("/api/payments/paystack/verify/", payload, format="json")
+            second = self.client.post("/api/payments/paystack/verify/", payload, format="json")
+        self.assertEqual(second.status_code, 200)
+        from apps.inventory.services import InventoryService
+        inventory = InventoryService.resolve_inventory(self.product, None)
+        self.assertEqual(inventory.on_hand, 4)  # stock deducted once
 
-    def test_underpayment_is_refused(self):
-        payment, _ = self._initialise()
-        body = paystack_success_payload(payment.reference, 100000)  # ₦1,000 instead of ₦21,800
-        with patch.object(PaystackService, "verify_transaction", return_value=ok_response(body)):
-            with self.assertRaises(PaymentError):
-                PaymentService.verify_payment(payment.reference)
+    def test_verify_wrong_amount_rejected(self):
+        init = self._initialize()
+        provider_ref = init.data["data"]["provider_reference"]
+        with self.mock_paystack(verify={"status": True, "data": {
+                "status": "success", "reference": provider_ref, "amount": 100,
+                "currency": "NGN", "id": 9}}):
+            response = self.client.post("/api/payments/paystack/verify/", {
+                "reference": provider_ref, "guest_token": self.order.guest_access_token}, format="json")
+        self.assertEqual(response.status_code, 409, response.data)
+        self.assertEqual(response.data["error"]["code"], "amount_mismatch")
         self.order.refresh_from_db()
         self.assertNotEqual(self.order.payment_status, Order.PaymentStatus.PAID)
-        payment.refresh_from_db()
-        self.assertEqual(payment.status, Payment.Status.FAILED)
 
-    def test_currency_mismatch_is_refused(self):
-        payment, _ = self._initialise()
-        body = paystack_success_payload(payment.reference, 2180000, currency="USD")
-        with patch.object(PaystackService, "verify_transaction", return_value=ok_response(body)):
-            with self.assertRaises(PaymentError):
-                PaymentService.verify_payment(payment.reference)
-        self.order.refresh_from_db()
-        self.assertNotEqual(self.order.payment_status, Order.PaymentStatus.PAID)
+    def test_verify_wrong_currency_rejected(self):
+        init = self._initialize()
+        provider_ref = init.data["data"]["provider_reference"]
+        kobo = int(naira_to_kobo(self.order.total_amount))
+        with self.mock_paystack(verify={"status": True, "data": {
+                "status": "success", "reference": provider_ref, "amount": kobo,
+                "currency": "GHS", "id": 10}}):
+            response = self.client.post("/api/payments/paystack/verify/", {
+                "reference": provider_ref, "guest_token": self.order.guest_access_token}, format="json")
+        self.assertEqual(response.status_code, 409, response.data)
+        self.assertEqual(response.data["error"]["code"], "currency_mismatch")
 
-    def test_failed_transaction_does_not_pay_the_order(self):
-        payment, _ = self._initialise()
-        body = paystack_success_payload(payment.reference, 2180000, status="failed")
-        with patch.object(PaystackService, "verify_transaction", return_value=ok_response(body)):
-            with self.assertRaises(PaymentError):
-                PaymentService.verify_payment(payment.reference)
+    def test_verify_failed_transaction_marks_failed(self):
+        init = self._initialize()
+        provider_ref = init.data["data"]["provider_reference"]
+        with self.mock_paystack(verify={"status": True, "data": {
+                "status": "failed", "reference": provider_ref, "amount": 0,
+                "gateway_response": "Declined by bank"}}):
+            response = self.client.post("/api/payments/paystack/verify/", {
+                "reference": provider_ref, "guest_token": self.order.guest_access_token}, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
         self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.Status.PAYMENT_FAILED)
         self.assertEqual(self.order.payment_status, Order.PaymentStatus.FAILED)
 
-    def test_verification_is_idempotent(self):
-        payment, _ = self._initialise()
-        body = paystack_success_payload(payment.reference, 2180000)
-        with patch.object(PaystackService, "verify_transaction", return_value=ok_response(body)) as verify:
-            PaymentService.verify_payment(payment.reference)
-            PaymentService.verify_payment(payment.reference)
-            self.assertEqual(verify.call_count, 1)  # second call short-circuits
-        self.order.refresh_from_db()
-        self.assertEqual(self.order.amount_paid, Decimal("21800.00"))
-        inventory = Inventory.objects.get(product=self.product, variation=None)
-        self.assertEqual(inventory.quantity_on_hand, 8)
+    def test_verify_unknown_reference_404(self):
+        with self.mock_paystack():
+            response = self.client.post("/api/payments/paystack/verify/", {"reference": "NOPE"}, format="json")
+        self.assertEqual(response.status_code, 404)
 
-    def test_unknown_reference_is_rejected(self):
-        from apps.core.exceptions import NotFound
-
-        with self.assertRaises(NotFound):
-            PaymentService.verify_payment("STM-DOES-NOT-EXIST")
-
-
-class WebhookTests(PaymentTestCase):
-    def _post_webhook(self, event: dict, secret: str | None = None, signature: str | None = None):
+    # ------------------------------------------------------------ webhook
+    def _webhook(self, event, secret=WEBHOOK_SECRET, sign=True):
         body = json.dumps(event).encode()
-        sig = signature if signature is not None else sign(body, secret or settings.PAYSTACK_WEBHOOK_SECRET)
-        return self.client.post(
-            "/api/v1/payments/webhook/paystack/", data=body,
-            content_type="application/json", HTTP_X_PAYSTACK_SIGNATURE=sig,
-        )
+        headers = {}
+        if sign:
+            headers["HTTP_X_PAYSTACK_SIGNATURE"] = hmac.new(secret.encode(), body, hashlib.sha512).hexdigest()
+        return self.client.post("/api/payments/paystack/webhook/", data=body,
+                                content_type="application/json", **headers)
 
-    def test_invalid_signature_is_rejected(self):
-        payment, _ = self._initialise()
-        response = self._post_webhook(
-            {"event": "charge.success", "data": {"reference": payment.reference, "id": 1}},
-            signature="deadbeef",
-        )
-        self.assertEqual(response.status_code, 401)
+    def _success_event(self, provider_ref, amount_kobo=None, event_id=1):
+        return {
+            "event": "charge.success",
+            "data": {
+                "id": event_id, "reference": provider_ref,
+                "amount": int(amount_kobo or naira_to_kobo(self.order.total_amount)),
+                "currency": "NGN", "status": "success", "channel": "card",
+                "metadata": {"order_reference": self.order.reference},
+            },
+        }
+
+    def test_webhook_invalid_signature_rejected(self):
+        init = self._initialize()
+        event = self._success_event(init.data["data"]["provider_reference"])
+        response = self._webhook(event, secret="wrong-secret")
+        self.assertEqual(response.status_code, 400)
         self.order.refresh_from_db()
         self.assertNotEqual(self.order.payment_status, Order.PaymentStatus.PAID)
-        self.assertTrue(
-            PaymentWebhookEvent.objects.filter(signature_valid=False, order=None).exists()
-            or PaymentWebhookEvent.objects.filter(
-                processing_status=PaymentWebhookEvent.ProcessingStatus.REJECTED
-            ).exists()
-        )
 
-    def test_valid_webhook_settles_payment(self):
-        payment, _ = self._initialise()
-        body = paystack_success_payload(payment.reference, 2180000)
-        with patch.object(PaystackService, "verify_transaction", return_value=ok_response(body)):
-            response = self._post_webhook({
-                "event": "charge.success",
-                "data": {"reference": payment.reference, "id": 302961},
-            })
+    def test_webhook_missing_signature_rejected(self):
+        init = self._initialize()
+        event = self._success_event(init.data["data"]["provider_reference"])
+        response = self._webhook(event, sign=False)
+        self.assertEqual(response.status_code, 400)
+
+    def test_webhook_success_confirms_order(self):
+        init = self._initialize()
+        provider_ref = init.data["data"]["provider_reference"]
+        with self.mock_paystack(verify={"status": True, "data": {
+                "status": "success", "reference": provider_ref,
+                "amount": int(naira_to_kobo(self.order.total_amount)), "currency": "NGN", "id": 77}}):
+            response = self._webhook(self._success_event(provider_ref))
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["status"], "settled")
         self.order.refresh_from_db()
         self.assertEqual(self.order.payment_status, Order.PaymentStatus.PAID)
+        self.assertTrue(PaymentWebhookEvent.objects.filter(processed=True).exists())
 
-    def test_duplicate_webhook_delivery_is_ignored(self):
-        payment, _ = self._initialise()
-        body = paystack_success_payload(payment.reference, 2180000)
-        event = {"event": "charge.success", "data": {"reference": payment.reference, "id": 302961}}
-        with patch.object(PaystackService, "verify_transaction", return_value=ok_response(body)) as verify:
-            first = self._post_webhook(event)
-            second = self._post_webhook(event)
-            self.assertEqual(first.status_code, 200)
-            self.assertEqual(second.status_code, 200)
-            self.assertEqual(second.json()["status"], "duplicate")
-            self.assertEqual(verify.call_count, 1)
+    def test_webhook_duplicate_delivery_processed_once(self):
+        init = self._initialize()
+        provider_ref = init.data["data"]["provider_reference"]
+        event = self._success_event(provider_ref, event_id=555)
+        with self.mock_paystack(verify={"status": True, "data": {
+                "status": "success", "reference": provider_ref,
+                "amount": int(naira_to_kobo(self.order.total_amount)), "currency": "NGN", "id": 77}}):
+            r1 = self._webhook(event)
+            r2 = self._webhook(event)  # Paystack retry
+        self.assertEqual(r1.status_code, 200)
+        self.assertEqual(r2.status_code, 200)
+        self.assertEqual(PaymentWebhookEvent.objects.count(), 1)
+        from apps.inventory.services import InventoryService
+        inventory = InventoryService.resolve_inventory(self.product, None)
+        self.assertEqual(inventory.on_hand, 4)  # deducted once only
 
+    def test_redirect_without_verification_does_not_mark_paid(self):
+        # Customer "returns from Paystack" but no verification: order must stay pending.
+        self._initialize()
+        response = self.client.get(f"/api/orders/{self.order.reference}/?token={self.order.guest_access_token or ''}")
         self.order.refresh_from_db()
-        self.assertEqual(self.order.amount_paid, Decimal("21800.00"))
-        inventory = Inventory.objects.get(product=self.product, variation=None)
-        self.assertEqual(inventory.quantity_on_hand, 8)
-        self.assertEqual(inventory.quantity_sold, 2)
+        self.assertEqual(self.order.payment_status, Order.PaymentStatus.PENDING)
 
-    def test_webhook_for_unknown_reference_is_rejected_gracefully(self):
-        response = self._post_webhook({
-            "event": "charge.success", "data": {"reference": "STM-UNKNOWN-1", "id": 999},
-        })
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["status"], "unknown_reference")
+    def test_cannot_initialize_payment_for_expired_order(self):
+        from django.utils import timezone
+        from datetime import timedelta
+        Order.objects.filter(pk=self.order.pk).update(expires_at=timezone.now() - timedelta(minutes=5))
+        with self.mock_paystack():
+            response = self.client.post("/api/payments/paystack/initialize/", {
+                "order_reference": self.order.reference,
+                "guest_token": self.order.guest_access_token}, format="json")
+        self.assertEqual(response.status_code, 409, response.data)
+        self.assertEqual(response.data["error"]["code"], "order_expired")
 
-    def test_webhook_does_not_trust_payload_amount(self):
-        """
-        Even a signed webhook must be re-verified: the body claims success but
-        Paystack reports a different amount on verification.
-        """
-        payment, _ = self._initialise()
-        body = paystack_success_payload(payment.reference, 50000)  # ₦500
-        with patch.object(PaystackService, "verify_transaction", return_value=ok_response(body)):
-            response = self._post_webhook({
-                "event": "charge.success",
-                "data": {"reference": payment.reference, "id": 111,
-                         "amount": 2180000, "status": "success"},
-            })
-        self.assertEqual(response.json()["status"], "failed")
-        self.order.refresh_from_db()
-        self.assertNotEqual(self.order.payment_status, Order.PaymentStatus.PAID)
-
-    def test_unsigned_webhook_is_rejected_at_the_signature_layer(self):
-        body = json.dumps({"event": "charge.success", "data": {"reference": "x"}}).encode()
-        self.assertFalse(PaystackService.verify_webhook_signature(body, ""))
-
-    def test_signature_computation_matches_paystack_scheme(self):
-        body = b'{"event":"charge.success"}'
-        self.assertEqual(
-            PaystackService.compute_signature(body),
-            hmac.new(
-                settings.PAYSTACK_WEBHOOK_SECRET.encode(), body, hashlib.sha512
-            ).hexdigest(),
-        )
+    def test_already_paid_order_cannot_initialize_again(self):
+        init = self._initialize()
+        provider_ref = init.data["data"]["provider_reference"]
+        with self.mock_paystack(verify={"status": True, "data": {
+                "status": "success", "reference": provider_ref,
+                "amount": int(naira_to_kobo(self.order.total_amount)), "currency": "NGN", "id": 78}}):
+            self.client.post("/api/payments/paystack/verify/", {
+                "reference": provider_ref, "guest_token": self.order.guest_access_token}, format="json")
+            response = self.client.post("/api/payments/paystack/initialize/", {
+                "order_reference": self.order.reference,
+                "guest_token": self.order.guest_access_token}, format="json")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data["error"]["code"], "order_already_paid")
