@@ -11,41 +11,144 @@ import { esc, formatMoney, formatNumber } from './utils.js';
 import { icon } from './icons.js';
 import { categoryUrl } from './categories.js';
 
+/** Storefront product URL. The static site serves product.html for
+ *  /products/<slug>/ (see tools/serve.py and deploy/*). */
 export const PRODUCT_URL = (product) => product?.url || `/products/${product?.slug ?? product?.id}/`;
+
+/* ============================================================================
+   Normalisation — one place that maps the backend product contract
+   (apps/products/serializers.py) onto the shape the UI renders.
+   ========================================================================== */
+
+const num = (value) => (value === null || value === undefined || value === '' ? null : Number(value));
+
+export function normalizeVariation(variation) {
+  if (!variation || typeof variation !== 'object') return variation;
+  const available = variation.is_available !== false && variation.in_stock !== false;
+  return {
+    ...variation,
+    label: variation.display_name || variation.label || variation.sku || '',
+    price: variation.effective_price ?? variation.price ?? null,
+    stock_status: available ? 'in_stock' : 'out_of_stock',
+    options: variation.options && typeof variation.options === 'object' ? variation.options : {},
+  };
+}
+
+export function normalizeProduct(raw) {
+  if (!raw || typeof raw !== 'object' || raw._normalized) return raw;
+  const regular = num(raw.regular_price);
+  const effective = num(raw.effective_price ?? raw.sale_price ?? raw.regular_price ?? raw.price);
+  const onSale = raw.on_sale ?? (regular !== null && effective !== null && regular > effective);
+  const inStock = raw.stock?.in_stock ?? raw.in_stock;
+  const gallery = Array.isArray(raw.images) && raw.images.length
+    ? [...raw.images]
+      .sort((x, y) => Number(!!y.is_main) - Number(!!x.is_main) || (x.sort_order ?? 0) - (y.sort_order ?? 0))
+      .map((image) => ({ url: image.url, alt: image.alt_text || raw.name, width: image.width || 600, height: image.height || 600 }))
+      .filter((image) => image.url)
+    : (raw.main_image_url || raw.main_image ? [{ url: raw.main_image_url || raw.main_image, alt: raw.name, width: 600, height: 600 }] : []);
+  const breadcrumb = Array.isArray(raw.breadcrumb) ? raw.breadcrumb : [];
+  const variations = Array.isArray(raw.variations) ? raw.variations.map(normalizeVariation) : [];
+  return {
+    ...raw,
+    _normalized: true,
+    url: `/products/${raw.slug}/`,
+    price: effective,
+    compare_at_price: onSale ? regular : null,
+    currency: raw.currency || 'NGN',
+    images: gallery,
+    rating_average: raw.rating_summary?.average ?? null,
+    rating_count: raw.rating_summary?.count ?? 0,
+    stock_status: inStock === true ? (raw.stock?.low_stock ? 'low_stock' : 'in_stock')
+      : inStock === false ? 'out_of_stock' : null,
+    has_variations: raw.has_variations ?? variations.length > 0,
+    variations,
+    category: (raw.category && typeof raw.category === 'object') ? raw.category : {
+      id: raw.category ?? null,
+      name: raw.category_name || '',
+      slug: raw.category_slug || '',
+      // Detail responses carry the full trail; the last crumb is the product itself.
+      url: breadcrumb.length > 1 ? breadcrumb[breadcrumb.length - 2].url_path : null,
+    },
+    category_trail: breadcrumb.slice(0, -1).map((c) => ({ name: c.name, slug: c.slug, url: c.url_path })),
+    weight: raw.weight_kg ? `${raw.weight_kg} kg` : null,
+    seo: raw.seo || null,
+  };
+}
+
+function normalizeProductList(data) {
+  const list = normalizeList(data);
+  return { ...list, results: list.results.map(normalizeProduct) };
+}
+
+/** UI sort keys → backend `ordering` values (ProductPublicViewSet.ordering_fields). */
+export const SORT_OPTIONS = Object.freeze([
+  { value: '', label: 'Newest first', ordering: '-created_at' },
+  { value: 'price_asc', label: 'Price: low to high', ordering: 'price' },
+  { value: 'price_desc', label: 'Price: high to low', ordering: '-price' },
+  { value: 'name', label: 'Name: A to Z', ordering: 'name' },
+  { value: 'rating', label: 'Top rated', ordering: '-avg_rating' },
+]);
 
 /* ============================================================================
    Reads
    ========================================================================== */
 
+/**
+ * GET /products/ — filters: category (slug), q, brand, min_price, max_price,
+ * in_stock, featured, new_arrivals, best_sellers, ordering, page, page_size.
+ */
 export function listProducts(params = {}, { signal } = {}) {
-  return api.publicGet('/products/', { params, signal }).then(normalizeList);
+  return api.publicGet('/products/', { params, signal }).then(normalizeProductList);
+}
+
+/** GET /products/search/?q= — relevance-ranked search. */
+export function searchProducts(params = {}, { signal } = {}) {
+  return api.publicGet('/products/search/', { params, signal }).then(normalizeProductList);
 }
 
 export function getProduct(slug, { signal } = {}) {
-  return api.publicGet(`/products/${encodeURIComponent(slug)}/`, { signal });
+  return api.publicGet(`/products/${encodeURIComponent(slug)}/`, { signal }).then(normalizeProduct);
 }
 
 export function getRelatedProducts(slug, { signal, limit = 4 } = {}) {
   return api.publicGet(`/products/${encodeURIComponent(slug)}/related/`, { params: { limit }, signal })
-    .then(normalizeList)
+    .then(normalizeProductList)
     .catch(() => ({ results: [], count: 0 }));
 }
 
+/** GET /reviews/product/<slug>/ — approved reviews (paginated) + rating summary. */
 export function getProductReviews(slug, params = {}, { signal } = {}) {
-  return api.publicGet(`/products/${encodeURIComponent(slug)}/reviews/`, { params, signal }).then(normalizeList);
+  return api.publicGet(`/reviews/product/${encodeURIComponent(slug)}/`, { params, signal }).then((data) => {
+    const list = normalizeList(data);
+    return {
+      ...list,
+      summary: data?.summary || null,
+      results: list.results.map((review) => ({
+        ...review,
+        display_name: review.customer_name || 'Customer',
+        verified_purchase: !!review.is_verified_purchase,
+      })),
+    };
+  });
 }
 
-export function submitReview(slug, payload) {
-  return api.post(`/products/${encodeURIComponent(slug)}/reviews/`, payload);
+/** POST /reviews/ — signed-in customers only; the review is moderated before it appears. */
+export function submitReview(productId, { rating, title = '', body = '' }) {
+  return api.post('/reviews/', { product: productId, rating: Number(rating), title, body });
 }
 
-/** Facets for category-aware filtering. The backend decides which apply. */
+/** GET /products/facets/ — brands (with counts) and price bounds for a scope. */
 export function getFacets(params = {}, { signal } = {}) {
-  return api.publicGet('/products/facets/', { params, signal });
+  return api.publicGet('/products/facets/', { params, signal }).then((data) => ({
+    brands: Array.isArray(data?.brands) ? data.brands : [],
+    price_range: { min: num(data?.price?.min), max: num(data?.price?.max) },
+    count: data?.count ?? null,
+  }));
 }
 
-export function getBrands(params = {}, { signal } = {}) {
-  return api.publicGet('/brands/', { params, signal }).then(normalizeList);
+export async function getBrands(params = {}, opts = {}) {
+  const facets = await getFacets(params, opts);
+  return { results: facets.brands, count: facets.brands.length };
 }
 
 /* ============================================================================
@@ -117,8 +220,8 @@ export function productImage(product, index = 0) {
 }
 
 export function productRating(product) {
-  const average = Number(product?.rating_average ?? product?.average_rating);
-  const count = Number(product?.rating_count ?? product?.review_count);
+  const average = Number(product?.rating_average ?? product?.rating_summary?.average ?? NaN);
+  const count = Number(product?.rating_count ?? product?.rating_summary?.count ?? NaN);
   if (!Number.isFinite(average) || !Number.isFinite(count) || count <= 0) return null;
   return { average, count };
 }
@@ -151,7 +254,7 @@ export function renderProductCard(product, { lazy = true, showWishlist = true, e
   const url = PRODUCT_URL(product);
   const name = product?.name || 'Product';
   const category = product?.category;
-  const categoryName = typeof category === 'string' ? category : category?.name;
+  const categoryName = typeof category === 'string' ? category : (category?.name || product?.category_name);
   const hasVariations = !!(product?.has_variations || product?.variations?.length);
   const canBuyDirectly = stock.purchasable && !hasVariations;
 
@@ -271,4 +374,4 @@ export function productJsonLd(product, origin) {
 }
 
 export { categoryUrl };
-export default { listProducts, getProduct, renderProductCard, renderProductGrid };
+export default { listProducts, searchProducts, getProduct, renderProductCard, renderProductGrid, normalizeProduct };

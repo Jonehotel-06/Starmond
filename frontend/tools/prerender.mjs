@@ -16,7 +16,7 @@
  * JS module then hydrates the interactive parts in the browser.
  *
  * Run AFTER the backend is reachable:
- *   SITE_URL=https://store.example API_BASE_URL=https://api.example/api/v1 \
+ *   SITE_URL=https://store.example API_BASE_URL=https://api.example/api \
  *     node tools/prerender.mjs
  *
  * If the API is unreachable this exits non-zero WITHOUT writing fake pages.
@@ -32,7 +32,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
 
 const SITE_URL = (process.env.SITE_URL || '').replace(/\/$/, '');
-const API_BASE_URL = process.env.API_BASE_URL || '/api/v1';
+const API_BASE_URL = process.env.API_BASE_URL || '/api';
 const LIMIT = Number(process.env.PRERENDER_LIMIT || 5000);
 
 if (!SITE_URL) {

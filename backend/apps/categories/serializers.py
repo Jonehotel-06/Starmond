@@ -36,16 +36,23 @@ class CategoryStaffSerializer(serializers.ModelSerializer):
     seo = serializers.SerializerMethodField()
 
     slug = serializers.SlugField(required=False, allow_blank=True, max_length=140)
+    parent_name = serializers.CharField(source="parent.name", read_only=True, default=None)
+    product_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Category
-        fields = ["id", "name", "slug", "description", "image", "banner_image", "parent", "display_order",
-                  "seo_title", "seo_description", "seo_keywords", "og_image", "canonical_url",
-                  "is_active", "url_path", "seo", "created_at", "updated_at"]
+        fields = ["id", "name", "slug", "description", "image", "banner_image", "parent", "parent_name",
+                  "display_order", "seo_title", "seo_description", "seo_keywords", "og_image", "canonical_url",
+                  "is_active", "product_count", "url_path", "seo", "created_at", "updated_at"]
         read_only_fields = ["id", "created_at", "updated_at", "url_path"]
 
     def get_seo(self, obj):
         return obj.effective_seo()
+
+    def get_product_count(self, obj):
+        # Annotated by the staff viewset; falls back to a query for single objects.
+        count = getattr(obj, "direct_product_count", None)
+        return obj.products.count() if count is None else count
 
     def validate(self, attrs):
         instance = self.instance or Category()

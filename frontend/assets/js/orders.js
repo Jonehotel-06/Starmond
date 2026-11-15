@@ -8,6 +8,7 @@ import api, { normalizeList } from './api.js';
 import { esc, formatMoney, formatDate, formatDateTime } from './utils.js';
 import { icon } from './icons.js';
 import { renderProductLine } from './products.js';
+import { getOrderAccess, rememberOrderAccess } from './checkout.js';
 
 export const LIFECYCLE = [
   ['pending_payment', 'Pending payment'],
@@ -23,8 +24,9 @@ export const LIFECYCLE = [
 const STATUS_TONE = {
   pending_payment: 'warning', paid: 'success', confirmed: 'success', processing: 'info',
   packed: 'info', shipped: 'info', out_for_delivery: 'info', delivered: 'success',
-  completed: 'success', cancelled: 'danger', failed: 'danger', refunded: 'neutral',
-  partially_refunded: 'warning', on_hold: 'warning', returned: 'neutral',
+  completed: 'success', cancelled: 'danger', failed: 'danger', payment_failed: 'danger', expired: 'neutral',
+  refunded: 'neutral', partially_refunded: 'warning', refund_requested: 'warning', pending: 'warning',
+  successful: 'success', initialized: 'warning', abandoned: 'neutral', approved: 'success', rejected: 'danger', requested: 'warning',
 };
 
 export function statusBadge(status, label = null) {
@@ -34,27 +36,104 @@ export function statusBadge(status, label = null) {
   return `<span class="badge badge--${tone} badge--dot">${esc(text)}</span>`;
 }
 
+/* ============================================================================
+   Data — backend contract (apps/orders, apps/refunds)
+     GET  /orders/?status=&page=          signed-in customer's orders (summaries)
+     GET  /orders/<reference>/?token=     owner, or a guest holding the access token
+     POST /orders/<reference>/            cancel an order that is still awaiting payment
+     POST /orders/lookup/ {reference,email}  guest lookup → access token
+     POST /refunds/requests/ {order_reference, reason, amount?}
+   ========================================================================== */
+
+/** Map the backend order (summary or detail) onto the shape the renderers use. */
+export function normalizeOrder(raw) {
+  if (!raw || typeof raw !== 'object' || raw._normalized) return raw;
+  const totals = raw.totals || {};
+  const delivery = raw.delivery || {};
+  const items = (raw.items || []).map((item) => ({
+    id: item.id,
+    quantity: item.quantity,
+    unit_price: item.unit_price,
+    line_total: item.line_total,
+    customization: item.customization || null,
+    product: {
+      id: item.product,
+      name: item.product_name,
+      slug: item.product_slug || null,
+      sku: item.sku,
+      url: item.product_slug ? `/products/${item.product_slug}/` : '/shop.html',
+    },
+    variation: item.variation_label || null,
+  }));
+  return {
+    ...raw,
+    _normalized: true,
+    items,
+    item_count: raw.item_count ?? items.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0),
+    created_at: raw.placed_at || raw.created_at || null,
+    fulfilment_status: raw.status,
+    tracking_number: delivery.tracking_reference || raw.tracking_reference || null,
+    estimated_delivery: delivery.estimate || null,
+    total: totals.total ?? raw.total_amount ?? raw.total ?? null,
+    currency: raw.currency || totals.currency || 'NGN',
+    refunded_amount: totals.refunded ?? null,
+    totals: {
+      subtotal: totals.subtotal ?? null,
+      discount_total: totals.discount ?? null,
+      shipping_total: totals.shipping_fee ?? null,
+      total: totals.total ?? raw.total_amount ?? null,
+      currency: totals.currency || raw.currency || 'NGN',
+    },
+    customer: raw.contact || null,
+    delivery: {
+      ...delivery,
+      method_name: delivery.method || raw.shipping_method_name || '',
+      address_line1: delivery.street || '',
+      address_line2: delivery.details || '',
+    },
+    refund_requested: raw.status === 'refund_requested',
+  };
+}
+
 export function listOrders(params = {}) {
-  return api.privateGet('/orders/', { params }).then(normalizeList);
+  return api.privateGet('/orders/', { params }).then((data) => {
+    const list = normalizeList(data);
+    return { ...list, results: list.results.map(normalizeOrder) };
+  });
 }
 
+/**
+ * Signed-in owners need no token. Guests use the access token the backend
+ * issued at checkout or through the order lookup (kept in sessionStorage).
+ */
 export function getOrder(reference, { token = null } = {}) {
-  const path = token
-    ? `/orders/guest/${encodeURIComponent(reference)}/`
-    : `/orders/${encodeURIComponent(reference)}/`;
-  return api.privateGet(path, { params: token ? { token } : undefined });
+  const access = token || getOrderAccess(reference);
+  return api.privateGet(`/orders/${encodeURIComponent(reference)}/`, { params: access ? { token: access } : undefined })
+    .then(normalizeOrder);
 }
 
-export function requestGuestAccess(payload) {
-  return api.post('/orders/guest-access/', payload);
+/** Guest lookup: reference + checkout email → access token (stored for this tab). */
+export async function requestGuestAccess({ reference, email }) {
+  const data = await api.post('/orders/lookup/', { reference, email });
+  const ref = data?.summary?.reference || String(reference).toUpperCase();
+  if (data?.token) rememberOrderAccess(ref, data.token);
+  return { reference: ref, summary: data?.summary ? normalizeOrder(data.summary) : null };
 }
 
-export function requestRefund(reference, payload) {
-  return api.post(`/orders/${encodeURIComponent(reference)}/refund-requests/`, payload);
+/** Cancel an order that has not been paid for. Stock reservations are released. */
+export function cancelOrder(reference) {
+  const token = getOrderAccess(reference);
+  return api.post(`/orders/${encodeURIComponent(reference)}/`, token ? { token } : {});
 }
 
-export function downloadReceipt(reference) {
-  return api.download(`/orders/${encodeURIComponent(reference)}/receipt/`);
+/** Signed-in customers only. Reviewed by staff before any money moves. */
+export function requestRefund(reference, { reason, details = '' }) {
+  const text = [reason, details].filter(Boolean).join(' — ');
+  return api.post('/refunds/requests/', { order_reference: reference, reason: text });
+}
+
+export function listRefunds() {
+  return api.privateGet('/refunds/requests/').then(normalizeList);
 }
 
 export function orderItems(order) {
@@ -72,7 +151,7 @@ export function orderCurrency(order) {
 export function renderOrderCard(order) {
   const items = orderItems(order);
   const reference = order.reference || order.order_number || order.id;
-  const detailUrl = order.access_url || `/order-detail.html?ref=${encodeURIComponent(reference)}`;
+  const detailUrl = `/order-detail.html?reference=${encodeURIComponent(reference)}`;
   return `<article class="order-card">
     <div class="order-card__head">
       <div class="stack stack--xs">
@@ -80,19 +159,19 @@ export function renderOrderCard(order) {
         <span class="t-meta">Placed ${esc(formatDate(order.created_at))}</span>
       </div>
       <div class="cluster cluster--sm">
-        ${statusBadge(order.payment_status || 'pending_payment', order.payment_status_label)}
-        ${statusBadge(order.fulfilment_status || order.status, order.fulfilment_status_label)}
+        ${statusBadge(order.payment_status || 'pending', `Payment: ${String(order.payment_status || 'pending').replace(/_/g, ' ')}`)}
+        ${statusBadge(order.status)}
       </div>
     </div>
     <div class="order-card__body">
-      ${items.slice(0, 3).map((item) => renderProductLine({
+      ${items.length ? items.slice(0, 3).map((item) => renderProductLine({
         product: item.product || item,
         variation: item.variation,
         quantity: item.quantity,
         unitPrice: item.unit_price,
         lineTotal: item.line_total,
         currency: orderCurrency(order),
-      })).join('')}
+      })).join('') : `<p class="t-sm t-muted">${esc(order.item_count || 0)} item${Number(order.item_count) === 1 ? '' : 's'}${order.shipping_method_name ? ` · ${esc(order.shipping_method_name)}` : ''}</p>`}
       ${items.length > 3 ? `<p class="t-meta">and ${items.length - 3} more item${items.length - 3 === 1 ? '' : 's'}</p>` : ''}
     </div>
     <div class="order-card__foot">
@@ -123,9 +202,9 @@ export function renderTimeline(order) {
   }
 
   const current = String(order.fulfilment_status || order.status || '').toLowerCase();
-  const paid = ['paid', 'success', 'successful'].includes(String(order.payment_status || '').toLowerCase());
+  const paid = ['paid', 'partially_refunded'].includes(String(order.payment_status || '').toLowerCase());
   const currentIndex = LIFECYCLE.findIndex(([key]) => key === current);
-  const cancelled = ['cancelled', 'failed', 'refunded'].includes(current);
+  const cancelled = ['cancelled', 'payment_failed', 'expired', 'refunded', 'refund_requested', 'partially_refunded'].includes(current);
 
   if (cancelled) {
     return `<div class="alert alert--warning"><span class="alert__icon">${icon('alert-circle')}</span>
@@ -143,14 +222,17 @@ export function renderTimeline(order) {
   }).join('')}</ol>`;
 }
 
-export function renderOrderDetail(order, { guest = false } = {}) {
+export function renderOrderDetail(order, { guest = false, staff = false } = {}) {
   const items = orderItems(order);
   const currency = orderCurrency(order);
   const totals = order.totals || {};
   const reference = order.reference || order.order_number || order.id;
   const delivery = order.delivery || order.shipping_address || {};
-  const canRefund = order.refund_eligible === true
-    || (['delivered', 'completed'].includes(String(order.fulfilment_status || '').toLowerCase()) && order.refund_requested !== true);
+  const status = String(order.status || '').toLowerCase();
+  const awaitingPayment = status === 'pending_payment';
+  // Refund requests need an account (POST /refunds/requests/) and a paid order.
+  const canRefund = !guest && !staff && String(order.payment_status).toLowerCase() === 'paid'
+    && !['refund_requested', 'refunded', 'cancelled'].includes(status);
 
   const row = (label, value, cls = '') => `<div class="summary-row ${cls}"><span class="summary-row__label">${esc(label)}</span><span class="summary-row__value">${value}</span></div>`;
   const money = (value) => (value != null ? esc(formatMoney(value, currency)) : '—');
@@ -163,28 +245,31 @@ export function renderOrderDetail(order, { guest = false } = {}) {
           <span class="t-meta">Placed ${esc(formatDateTime(order.created_at))}</span>
         </div>
         <div class="cluster cluster--sm">
-          ${statusBadge(order.payment_status, order.payment_status_label)}
-          ${statusBadge(order.fulfilment_status || order.status, order.fulfilment_status_label)}
+          ${statusBadge(order.payment_status, `Payment: ${String(order.payment_status || 'pending').replace(/_/g, ' ')}`)}
+          ${statusBadge(order.status)}
         </div>
       </div>
       <div class="card__body">
         <div class="order-meta-grid">
-          <div><span class="order-meta__label">Payment</span><span class="order-meta__value">${esc(order.payment_method || 'Paystack')}</span></div>
+          <div><span class="order-meta__label">Payment</span><span class="order-meta__value">Paystack${order.paid_at ? ` · paid ${esc(formatDateTime(order.paid_at))}` : ''}</span></div>
           <div><span class="order-meta__label">Delivery method</span><span class="order-meta__value">${esc(delivery.method_name || delivery.method || '—')}</span></div>
-          <div><span class="order-meta__label">Items</span><span class="order-meta__value">${items.length}</span></div>
+          <div><span class="order-meta__label">Items</span><span class="order-meta__value">${esc(order.item_count ?? items.length)}</span></div>
           <div><span class="order-meta__label">Total</span><span class="order-meta__value price">${money(orderTotal(order))}</span></div>
           ${order.tracking_number ? `<div><span class="order-meta__label">Tracking number</span><span class="order-meta__value">${esc(order.tracking_number)}</span></div>` : ''}
-          ${order.estimated_delivery ? `<div><span class="order-meta__label">Estimated delivery</span><span class="order-meta__value">${esc(formatDate(order.estimated_delivery))}</span></div>` : ''}
+          ${order.estimated_delivery ? `<div><span class="order-meta__label">Estimated delivery</span><span class="order-meta__value">${esc(order.estimated_delivery)}</span></div>` : ''}
         </div>
       </div>
-      <div class="card__foot cluster cluster--between">
+      <div class="card__foot cluster cluster--between" ${staff ? 'hidden' : ''}>
         <div class="cluster cluster--sm">
-          <button type="button" class="btn btn--secondary btn--sm" data-download-receipt="${esc(reference)}">${icon('download', { size: 'sm' })} Receipt</button>
+          <button type="button" class="btn btn--secondary btn--sm" data-print-order>${icon('download', { size: 'sm' })} Print / save</button>
           ${canRefund ? `<button type="button" class="btn btn--ghost btn--sm" data-request-refund="${esc(reference)}">${icon('undo', { size: 'sm' })} Request refund</button>` : ''}
           ${order.refund_requested ? '<span class="badge badge--warning">Refund requested</span>' : ''}
         </div>
-        ${String(order.payment_status).toLowerCase() === 'pending_payment' && !guest
-          ? `<button type="button" class="btn btn--primary btn--sm" data-retry-payment="${esc(reference)}">Complete payment</button>` : ''}
+        ${awaitingPayment && !staff
+          ? `<div class="cluster cluster--sm">
+               <button type="button" class="btn btn--ghost btn--sm" data-cancel-order="${esc(reference)}">Cancel order</button>
+               <button type="button" class="btn btn--primary btn--sm" data-retry-payment="${esc(reference)}">Complete payment</button>
+             </div>` : ''}
       </div>
     </div>
 
@@ -234,4 +319,4 @@ export function renderOrderDetail(order, { guest = false } = {}) {
   </div>`;
 }
 
-export default { listOrders, getOrder, renderOrderCard, renderOrderDetail, statusBadge };
+export default { listOrders, getOrder, cancelOrder, requestRefund, renderOrderCard, renderOrderDetail, statusBadge, normalizeOrder };

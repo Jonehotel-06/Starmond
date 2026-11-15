@@ -29,6 +29,19 @@ class ShippingQuoteView(viewsets.ViewSet):
         return Response({"status": "success", "data": options})
 
 
+class ShippingStatesView(viewsets.ViewSet):
+    """GET /api/shipping/states/ — states the store currently delivers to
+    (union of every active zone that has at least one active method)."""
+    permission_classes = [AllowAny]
+
+    def list(self, request):
+        states = set()
+        zones = ShippingZone.objects.filter(is_active=True, methods__is_active=True).distinct()
+        for zone in zones:
+            states.update(str(s).strip() for s in (zone.states or []) if str(s).strip())
+        return Response({"status": "success", "data": sorted(states)})
+
+
 class ShippingZoneViewSet(viewsets.ModelViewSet):
     permission_classes = [IsStaffWithPermission]
     permission_codename = Perm.SHIPPING_MANAGE

@@ -71,7 +71,7 @@ class WishlistAddSerializer(serializers.Serializer):
 
 
 class StaffCustomerSerializer(serializers.Serializer):
-    id = serializers.IntegerField(source="pk")
+    id = serializers.IntegerField()
     email = serializers.EmailField()
     full_name = serializers.CharField()
     phone = serializers.CharField()

@@ -25,12 +25,12 @@ API_TARGET = os.environ.get("API_PROXY_TARGET", "").rstrip("/")
 
 class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
-        if API_TARGET and self.path.startswith("/api/"):
+        if API_TARGET and self.path.startswith(("/api/", "/media/")):
             return self.proxy()
         return super().do_GET()
 
     def do_POST(self):
-        if API_TARGET and self.path.startswith("/api/"):
+        if API_TARGET and self.path.startswith(("/api/", "/media/")):
             return self.proxy()
         self.send_error(405)
 

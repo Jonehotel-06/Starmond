@@ -24,7 +24,13 @@ let inFlight = false;
 
 function referenceFromUrl() {
   const params = new URLSearchParams(location.search);
-  return params.get('reference') || params.get('trxref') || params.get('order') || '';
+  // Paystack appends ?reference=&trxref= (its transaction reference) to the
+  // callback URL; ?order= is our own order reference added by the backend.
+  return params.get('reference') || params.get('trxref') || '';
+}
+
+function orderFromUrl() {
+  return new URLSearchParams(location.search).get('order') || '';
 }
 
 function renderMissingReference() {
@@ -40,7 +46,7 @@ function renderMissingReference() {
 function renderResult(result, { polling = false } = {}) {
   const copy = PAYMENT_COPY[result.status] || PAYMENT_COPY.pending;
   const order = result.order || {};
-  const reference = result.reference || order.reference || referenceFromUrl();
+  const reference = order.reference || result.reference || orderFromUrl() || referenceFromUrl();
   const amount = result.amount ?? order.total ?? null;
 
   document.title = `${copy.title} — Starmond Technology Limited`;
@@ -61,8 +67,7 @@ function renderResult(result, { polling = false } = {}) {
 
   const actions = [];
   if (result.status === 'success') {
-    if (order.access_url) actions.push(`<a class="btn btn--primary" href="${esc(order.access_url)}">View order details</a>`);
-    else actions.push('<a class="btn btn--primary" href="/orders.html">View my orders</a>');
+    actions.push(`<a class="btn btn--primary" href="${esc(order.access_url || '/orders.html')}">View order details</a>`);
     actions.push('<a class="btn btn--secondary" href="/shop.html">Continue shopping</a>');
   } else if (['failed', 'abandoned'].includes(result.status)) {
     actions.push(`<button type="button" class="btn btn--primary" data-retry-payment="${esc(reference)}">Try payment again</button>`);
@@ -74,11 +79,11 @@ function renderResult(result, { polling = false } = {}) {
     actions.push('<a class="btn btn--ghost" href="/contact.html">Contact support</a>');
   }
 
-  const guestNote = order.access_url
+  const guestNote = !order.is_guest
     ? ''
     : `<p class="summary-note">Checked out as a guest? Keep this reference. You can also use <a href="/track-order.html">Track an order</a> to receive a secure access link by email.</p>`;
 
-  const createAccount = result.status === 'success' && !order.customer_has_account
+  const createAccount = result.status === 'success' && order.is_guest
     ? `<div class="panel stack stack--sm" style="text-align:left">
         <p class="t-sm t-semibold">Want to track this order more easily?</p>
         <p class="t-sm t-muted">Create an account with ${esc(order.email || 'the email you used')} to see all your orders, receipts and delivery updates in one place.</p>
@@ -130,7 +135,12 @@ function renderResult(result, { polling = false } = {}) {
 async function run({ manual = false } = {}) {
   if (inFlight) return;
   const reference = referenceFromUrl();
-  if (!reference) { renderMissingReference(); return; }
+  if (!reference) {
+    // No transaction reference: nothing to verify. If we know the order, show it.
+    if (orderFromUrl()) { window.location.replace(`/order-detail.html?reference=${encodeURIComponent(orderFromUrl())}`); return; }
+    renderMissingReference();
+    return;
+  }
 
   inFlight = true;
   const region = $('[data-payment-region]');
@@ -142,6 +152,7 @@ async function run({ manual = false } = {}) {
   try {
     const result = await pollVerification(reference, {
       maxAttempts: manual ? 1 : 4,
+      orderReference: orderFromUrl() || null,
       onUpdate: (partial, attempt) => {
         if (partial.status === 'pending' && attempt > 1) renderResult(partial, { polling: true });
       },

@@ -22,13 +22,14 @@ import { BUSINESS_NAME } from '../site.js';
 await boot();
 
 const PAGE_SIZE = 20;
+// UI sort key → backend `ordering` (ProductPublicViewSet.ordering_fields).
 const SORT_MAP = {
-  featured: '-is_featured,-published_at',
-  newest: '-published_at',
+  featured: '-is_featured,-created_at',
+  newest: '-created_at',
   price_asc: 'price',
   price_desc: '-price',
-  best_selling: '-units_sold',
-  rating: '-rating_average',
+  best_selling: '-is_best_seller,-created_at',
+  rating: '-avg_rating',
 };
 
 const origin = (window.STARMOND_CONFIG?.SITE_URL || location.origin).replace(/\/$/, '');
@@ -71,18 +72,17 @@ function apiParams() {
     ordering: SORT_MAP[state.sort] || undefined,
   };
   if (state.category) params.category = state.category.slug ?? state.category.id;
+  // Storefront filter keys → ProductPublicFilter query parameters.
   Object.entries(state.filters).forEach(([key, value]) => {
     if (value === '' || value === null || value === undefined) return;
-    if (key === 'q') params.search = value;
-    else if (key === 'min_price') params.price_min = value;
-    else if (key === 'max_price') params.price_max = value;
-    else if (key === 'availability') params.availability = value;
+    if (key === 'q') params.q = value;
+    else if (key === 'min_price' || key === 'max_price') { if (Number(value) >= 0) params[key] = Number(value); }
+    else if (key === 'availability') params.in_stock = value === 'in_stock';
     else if (key === 'brand') params.brand = value;
-    else if (key === 'discounted') params.on_sale = 1;
-    else if (key === 'featured') params.featured = 1;
-    else if (key === 'new') params.new_arrivals = 1;
-    else if (key.startsWith('attr_')) params[key] = value;
-    else params[key] = value;
+    else if (key === 'discounted') params.on_sale = true;
+    else if (key === 'featured') params.featured = true;
+    else if (key === 'new') params.new_arrivals = true;
+    else if (key === 'best') params.best_sellers = true;
   });
   return params;
 }
@@ -212,7 +212,7 @@ function renderFacets(holder, data) {
       <p class="filter-group__title">Brand</p>
       <div class="filter-group__options filter-group__options--scroll">
         ${brands.map((brand) => {
-          const value = brand.slug || brand.name || brand;
+          const value = brand.name || brand;
           const label = brand.name || brand;
           const checked = String(state.filters.brand || '').split(',').includes(String(value));
           return `<label class="checkbox"><input type="checkbox" data-filter-multi="brand" value="${esc(value)}" ${checked ? 'checked' : ''}>
@@ -370,7 +370,7 @@ async function initCategory() {
     state.trail = trail;
 
     $('[data-listing-title]').textContent = category.name;
-    const description = category.description || category.short_description || '';
+    const description = category.description || category.description || '';
     $('[data-listing-description]').textContent = description || `Browse ${category.name} at ${BUSINESS_NAME}.`;
     $('[data-listing-breadcrumbs]').innerHTML = renderCategoryBreadcrumbs(trail);
 
@@ -378,8 +378,8 @@ async function initCategory() {
     setMeta('description', category.seo?.description || truncate(stripTags(description) || `Shop ${category.name} at ${BUSINESS_NAME}.`, 158));
     setCanonical(`${origin}${category.seo?.canonical || categoryUrl(category)}`);
 
-    if (category.banner_url) {
-      $('[data-listing-banner]').innerHTML = `<div class="category-banner"><img src="${esc(category.banner_url)}" alt="${esc(category.banner_alt || category.name)}" width="1600" height="320" loading="eager" decoding="async"></div>`;
+    if (category.banner_image_url) {
+      $('[data-listing-banner]').innerHTML = `<div class="category-banner"><img src="${esc(category.banner_image_url)}" alt="${esc(category.banner_alt || category.name)}" width="1600" height="320" loading="eager" decoding="async"></div>`;
     }
     if (category.children?.length) {
       $('[data-listing-subcategories]').innerHTML = renderSubcategoryTiles(category.children);

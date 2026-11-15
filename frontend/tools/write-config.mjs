@@ -106,5 +106,5 @@ if (config.SITE_URL) {
 }
 
 if (!config.API_BASE_URL) {
-  console.log('NOTE: API_BASE_URL not set — the default same-origin /api/v1 reverse proxy is used.');
+  console.log('NOTE: API_BASE_URL not set — the default same-origin /api reverse proxy is used.');
 }

@@ -5,6 +5,7 @@ from . import views
 app_name = "accounts"
 
 urlpatterns = [
+    path("csrf/", views.CsrfTokenView.as_view(), name="csrf"),
     path("register/", views.RegisterView.as_view(), name="register"),
     path("verify-email/", views.EmailVerifyView.as_view(), name="verify-email"),
     path("resend-verification/", views.ResendVerificationView.as_view(), name="resend-verification"),

@@ -224,19 +224,14 @@ function updateMeta() {
 
 function renderBreadcrumbs() {
   const holder = $('[data-product-breadcrumbs]');
-  const category = typeof product.category === 'object' ? product.category : null;
+  // The product detail response carries its category trail (root → leaf).
+  const trail = product.category_trail || [];
   const items = [{ name: 'Home', url: '/' }, { name: 'Shop', url: '/shop.html' }];
-  if (category) {
-    const trail = categoryTrail(category);
-    trail.forEach((c) => items.push({ name: c.name, url: categoryUrl(c) }));
-    holder.innerHTML = renderCategoryBreadcrumbs(trail, product.name);
-  } else {
-    holder.innerHTML = `<nav class="breadcrumbs" aria-label="Breadcrumb"><ol class="breadcrumbs__list">
-      <li class="breadcrumbs__item"><a href="/">Home</a></li>
-      <li class="breadcrumbs__item"><a href="/shop.html">Shop</a></li>
-      <li class="breadcrumbs__item"><span aria-current="page">${esc(product.name)}</span></li>
-    </ol></nav>`;
-  }
+  trail.forEach((c) => items.push({ name: c.name, url: c.url }));
+  holder.innerHTML = `<nav class="breadcrumbs" aria-label="Breadcrumb"><ol class="breadcrumbs__list">
+    ${items.map((item) => `<li class="breadcrumbs__item"><a href="${esc(item.url)}">${esc(item.name)}</a></li>`).join('')}
+    <li class="breadcrumbs__item"><span aria-current="page">${esc(product.name)}</span></li>
+  </ol></nav>`;
   const script = document.createElement('script');
   script.type = 'application/ld+json';
   script.dataset.productJsonld = 'true';
@@ -511,7 +506,8 @@ function renderTabs() {
     ? sanitizeHtml(product.description)
     : '<p class="t-muted">No detailed description has been published for this product yet.</p>';
 
-  const specs = product.specifications || product.attributes || [];
+  // `specifications` is a {label: value} object on the backend product.
+  const specs = product.specifications || {};
   const specsHolder = $('[data-product-specs]');
   const entries = Array.isArray(specs)
     ? specs.map((s) => [s.name || s.label || s.key, s.value])
@@ -658,7 +654,7 @@ async function openReviewDialog() {
       element.querySelector('[data-submit-review]').addEventListener('click', async (event) => {
         const button = event.currentTarget;
         try {
-          await withSubmit(form, button, () => submitReview(product.slug, { ...formData(form), rating: Number(formData(form).rating) }));
+          await withSubmit(form, button, () => submitReview(product.id, formData(form)));
           close();
           toast('Thank you. Your review will appear once it has been approved.', { type: 'success' });
         } catch { /* errors rendered on the form */ }

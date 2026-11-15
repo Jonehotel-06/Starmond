@@ -24,14 +24,15 @@
 
   var DEFAULTS = {
     /** Public REST root. Relative = same-origin reverse proxy. */
-    API_BASE_URL: '/api/v1',
+    API_BASE_URL: '/api',
 
     /** Canonical public origin of this storefront, e.g. https://starmond.example
      *  Empty string = derive from window.location.origin at runtime. */
     SITE_URL: '',
 
-    /** 'session' (DRF session + CSRF, httpOnly cookie) or 'jwt' (Bearer access
-     *  token in memory + httpOnly refresh cookie). Session is the safer default. */
+    /** 'session' (DRF session cookie + CSRF — the safer default) or 'token'
+     *  (DRF TokenAuthentication header, for cross-site deployments where
+     *  cookies cannot be used). 'jwt' is accepted as an alias of 'token'. */
     AUTH_MODE: 'session',
 
     /** Name of the CSRF cookie Django sets (django.middleware.csrf). */

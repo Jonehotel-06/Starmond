@@ -33,6 +33,12 @@ class PublicSettingsView(APIView):
             "business_name", "business_description", "contact_email", "contact_phone",
             "business_address", "currency", "currency_symbol", "social_links", "logo_key",
             "favicon_key", "homepage_hero", "footer_text", "support_hours")}
+        from .serializers import _public_media_url
+        public["logo_url"] = _public_media_url(public.get("logo_key"))
+        public["favicon_url"] = _public_media_url(public.get("favicon_key"))
+        hero = dict(public.get("homepage_hero") or {})
+        hero["image_url"] = _public_media_url(hero.get("image_key"))
+        public["homepage_hero"] = hero
         return Response({"status": "success", "data": public})
 
 

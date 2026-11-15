@@ -37,6 +37,20 @@ def _auth_payload(user):
 
 from drf_spectacular.utils import OpenApiTypes, extend_schema
 
+@extend_schema(request=None, responses=OpenApiTypes.OBJECT, tags=["auth"])
+class CsrfTokenView(APIView):
+    """GET /api/auth/csrf/ — sets the CSRF cookie and returns the token.
+
+    A storefront served from a different origin than the API cannot read the
+    API's cookie from JavaScript, so the token is also returned in the body.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        from django.middleware.csrf import get_token
+        return Response({"status": "success", "data": {"csrf_token": get_token(request)}})
+
+
 @extend_schema(request=RegisterSerializer, responses={201: OpenApiTypes.OBJECT}, tags=["auth"])
 class RegisterView(APIView):
     permission_classes = [AllowAny]
@@ -168,3 +182,9 @@ class MeView(RetrieveUpdateAPIView):
 
     def retrieve(self, request, *args, **kwargs):
         return Response({"status": "success", "data": self.get_serializer(self.get_object()).data})
+
+    def update(self, request, *args, **kwargs):
+        serializer = self.get_serializer(self.get_object(), data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response({"status": "success", "data": serializer.data})

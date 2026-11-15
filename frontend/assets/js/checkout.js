@@ -1,169 +1,234 @@
 /**
- * checkout.js — checkout service layer.
+ * STARMOND — Checkout data layer
+ * ----------------------------------------------------------------------------
+ * Backend contract (apps/orders, apps/shipping, apps/payments):
+ *   GET  /shipping/states/                          → ["Lagos", …] states the store delivers to
+ *   GET  /shipping/options/?state=&subtotal=        → delivery methods + fee for that state
+ *   POST /checkout/preview/                         → authoritative totals (creates nothing)
+ *   POST /checkout/   (+ Idempotency-Key header)    → creates the pending order, reserves stock
+ *   POST /payments/paystack/initialize/             → Paystack authorization_url
  *
- * Both cart checkout and Buy Now use these SAME endpoints. The only difference
- * is the payload's `mode` and line items. The backend creates the order,
- * reserves stock, computes every amount and initializes the Paystack
- * transaction. The frontend never computes a payable total.
+ * Every amount shown at checkout comes from the backend. The browser never
+ * calculates prices, discounts or delivery fees.
  */
 
 import api from './api.js';
 import { getBuyNowIntent, isBuyNowMode } from './cart.js';
+import { createStorage, randomToken } from './utils.js';
 
-/**
- * Geographic reference data for Nigerian states. This is public administrative
- * geography, not business data. The backend's shipping-zone list takes
- * precedence whenever it is available.
- */
-export const NIGERIAN_STATES = [
-  'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno',
-  'Cross River', 'Delta', 'Ebonyi', 'Edo', 'Ekiti', 'Enugu', 'FCT - Abuja', 'Gombe',
-  'Imo', 'Jigawa', 'Kaduna', 'Kano', 'Katsina', 'Kebbi', 'Kogi', 'Kwara', 'Lagos',
-  'Nasarawa', 'Niger', 'Ogun', 'Ondo', 'Osun', 'Oyo', 'Plateau', 'Rivers', 'Sokoto',
-  'Taraba', 'Yobe', 'Zamfara',
-];
+const session = createStorage('session');
+const ACCESS_KEY = 'order_access';
 
-/** States the store actually delivers to (falls back to all when unknown). */
-export async function getDeliverableStates() {
-  try {
-    const data = await api.publicGet('/shipping/states/');
-    const list = Array.isArray(data) ? data : data?.results || data?.states || [];
-    const names = list.map((entry) => (typeof entry === 'string' ? entry : entry.name)).filter(Boolean);
-    return names.length ? names : NIGERIAN_STATES;
-  } catch {
-    return NIGERIAN_STATES;
-  }
+/* ---------------------------------------------------------------- access -- */
+
+/** Remember the guest access token the backend issued for an order (tab only). */
+export function rememberOrderAccess(reference, token) {
+  if (!reference || !token) return;
+  const map = session.get(ACCESS_KEY, {}) || {};
+  map[reference] = token;
+  session.set(ACCESS_KEY, map);
+}
+export function getOrderAccess(reference) {
+  return (session.get(ACCESS_KEY, {}) || {})[reference] || null;
 }
 
-/**
- * Backend-configured delivery methods for a destination.
- * Never invents a price: if the API cannot answer, the caller must show an
- * error rather than a guessed fee.
- */
-export async function getDeliveryOptions({ state, city, mode = 'cart', items = null } = {}) {
-  const params = { state, city };
-  if (mode === 'buy_now' && items) params.items = JSON.stringify(items);
-  const data = await api.privateGet('/checkout/delivery-options/', { params });
-  const list = Array.isArray(data) ? data : data?.results || data?.methods || [];
-  return list.map((method) => ({
-    id: method.id ?? method.code,
-    code: method.code ?? method.id,
+/* -------------------------------------------------------------- delivery -- */
+
+/** States with at least one active delivery method. Empty list = none configured. */
+export async function getDeliverableStates() {
+  const data = await api.publicGet('/shipping/states/');
+  return (Array.isArray(data) ? data : []).filter(Boolean);
+}
+
+/** Delivery methods for a state. `code` is the ShippingMethod id the backend expects. */
+export async function getDeliveryOptions({ state, subtotal = null } = {}) {
+  const params = { state };
+  if (subtotal !== null && subtotal !== undefined) params.subtotal = subtotal;
+  const data = await api.publicGet('/shipping/options/', { params, cache: false });
+  return (Array.isArray(data) ? data : []).map((method) => ({
+    id: method.id,
+    code: String(method.id),
     name: method.name,
-    description: method.description || method.eta || '',
-    fee: method.fee ?? method.price ?? null,
-    currency: method.currency || 'NGN',
-    is_pickup: !!method.is_pickup,
-    eta: method.eta || method.estimated_days || null,
-    available: method.available !== false,
-    unavailable_reason: method.unavailable_reason || null,
+    kind: method.kind,
+    description: method.kind === 'pickup'
+      ? (method.pickup_address ? `Collect from: ${method.pickup_address}` : 'Collect in store')
+      : (method.estimated_delivery ? `Estimated ${method.estimated_delivery}` : ''),
+    fee: method.fee,
+    base_fee: method.base_fee,
+    free_above: method.free_above_amount,
+    currency: 'NGN',
+    is_pickup: method.kind === 'pickup',
+    pickup_address: method.pickup_address || '',
+    eta: method.estimated_delivery || null,
+    available: true,
   }));
 }
 
-/** Build the line-item payload for the current checkout mode. */
-export function checkoutLines(mode) {
-  if (mode === 'buy_now') {
-    const intent = getBuyNowIntent();
-    if (!intent) return null;
-    return [{ product: intent.product, variation: intent.variation, quantity: intent.quantity }];
-  }
-  return null; // cart mode: the backend reads the server-side cart
-}
+/* ------------------------------------------------------------------ mode -- */
 
 export function currentMode(search) {
   return isBuyNowMode(search) ? 'buy_now' : 'cart';
 }
 
+/** Buy Now line held in sessionStorage; null when it has expired. Cart mode → null. */
+export function checkoutLines(mode) {
+  if (mode !== 'buy_now') return null;
+  const intent = getBuyNowIntent();
+  if (!intent) return null;
+  return [{ product: intent.product, variation: intent.variation, quantity: intent.quantity }];
+}
+
+function sourceFor(mode, lines) {
+  if (mode === 'buy_now' && lines?.length) {
+    const [line] = lines;
+    return {
+      type: 'buy_now',
+      product_id: Number(line.product),
+      variation_id: line.variation ? Number(line.variation) : null,
+      quantity: Number(line.quantity) || 1,
+    };
+  }
+  return { type: 'cart' };
+}
+
+/* --------------------------------------------------------------- preview -- */
+
 /**
- * Authoritative pricing preview. Called on load and whenever the address,
- * delivery method or coupon changes.
- * @returns {{items:Array, totals:Object, discounts:Array, changes:Array, currency:string}}
+ * @param {{mode:string, lines?:Array, state?:string, deliveryMethod?:string, couponCode?:string}} input
  */
-export async function previewCheckout(payload) {
-  const data = await api.post('/checkout/preview/', payload);
+export async function previewCheckout({ mode, lines = null, state = '', deliveryMethod = null, couponCode = '' }) {
+  const body = {
+    source: sourceFor(mode, lines),
+    promotion_code: couponCode || '',
+    cart_token: api.getCartToken() || undefined,
+  };
+  if (state && deliveryMethod) body.delivery = { state, shipping_method_id: Number(deliveryMethod) };
+  const data = await api.post('/checkout/preview/', body);
+  const totals = data.totals || {};
   return {
-    items: data.items || data.cart?.items || [],
-    totals: data.totals || {
-      subtotal: data.subtotal ?? null,
-      discount_total: data.discount_total ?? null,
-      shipping_total: data.shipping_total ?? data.shipping_fee ?? null,
-      tax_total: data.tax_total ?? null,
-      fees: data.fees || [],
-      total: data.total ?? null,
-      currency: data.currency || 'NGN',
+    items: (data.items || []).map((item) => ({
+      id: item.id,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      line_total: item.line_total,
+      product: {
+        id: item.product, name: item.product_name, slug: item.product_slug,
+        images: item.image_url ? [{ url: item.image_url, alt: item.product_name }] : [],
+      },
+      variation: item.variation ? { id: item.variation, label: item.variation_label || '' } : null,
+    })),
+    totals: {
+      subtotal: totals.subtotal ?? null,
+      discount_total: totals.discount ?? null,
+      shipping_total: totals.shipping_fee ?? null,
+      total: totals.total ?? null,
+      currency: totals.currency || 'NGN',
     },
-    discounts: data.discounts || [],
-    changes: data.changes || [],
-    currency: data.currency || data.totals?.currency || 'NGN',
-    coupon: data.coupon || null,
-    raw: data,
+    currency: totals.currency || 'NGN',
+    coupon: data.promotion || null,
+    couponError: data.promotion_error || null,
+    shippingMethod: data.shipping_method || null,
+    changes: [],
   };
 }
 
-/** Apply/remove a discount code against the current checkout context. */
-export function applyCheckoutCoupon(payload) {
-  return api.post('/checkout/coupon/', payload);
-}
-export function removeCheckoutCoupon(payload) {
-  return api.delete('/checkout/coupon/', { body: payload });
-}
+/* ----------------------------------------------------------------- order -- */
 
-/**
- * Create the pending order and initialize payment.
- * The backend reserves inventory and returns the Paystack authorization URL.
- * The frontend NEVER marks an order as paid.
- */
-export async function createOrder(payload) {
-  const data = await api.post('/checkout/orders/', payload);
+/** Map the checkout form to the CheckoutSerializer body. */
+export function buildOrderPayload({ mode, form, deliveryMethod, couponCode, lines, pickup = null }) {
+  const fullName = String(form.full_name || '').trim();
+  const phone = String(form.phone || '').trim();
   return {
-    order: data.order || data,
-    reference: data.order?.reference || data.reference || data.order_reference,
-    payment: data.payment || null,
-    authorizationUrl: data.payment?.authorization_url || data.authorization_url || null,
-    accessUrl: data.order?.access_url || data.access_url || null,
-  };
-}
-
-/** Persist non-sensitive checkout form details for convenience. */
-export const CHECKOUT_DRAFT_KEY = 'checkout_draft';
-
-export function buildOrderPayload({ mode, form, deliveryMethod, couponCode, lines }) {
-  const payload = {
-    mode,
-    customer: {
-      full_name: String(form.full_name || '').trim(),
+    contact: {
+      full_name: fullName,
       email: String(form.email || '').trim().toLowerCase(),
-      phone: String(form.phone || '').trim(),
+      phone,
     },
     delivery: {
+      full_name: fullName,
+      phone,
       state: form.state,
       city: String(form.city || '').trim(),
-      address_line1: String(form.address_line1 || '').trim(),
-      address_line2: String(form.address_line2 || '').trim(),
+      // A pickup order has no delivery address; the collection point is recorded instead.
+      street: pickup ? (pickup.pickup_address || `Pickup — ${pickup.name}`) : String(form.address_line1 || '').trim(),
+      details: pickup ? '' : String(form.address_line2 || '').trim(),
       instructions: String(form.delivery_instructions || '').trim(),
-      method: deliveryMethod,
+      shipping_method_id: Number(deliveryMethod),
     },
-    save_address: !!form.save_address,
-    accept_terms: !!form.accept_terms,
-    currency: 'NGN',
+    source: sourceFor(mode, lines),
+    promotion_code: couponCode || '',
+    cart_token: api.getCartToken() || '',
   };
-  if (couponCode) payload.coupon_code = couponCode;
-  if (mode === 'buy_now') payload.items = lines;
-  return payload;
 }
 
-/** Client-side convenience validation. The backend re-validates everything. */
-export function validateCheckoutForm(form, { deliveryMethod }) {
+/**
+ * One idempotency key per distinct order payload. A double click, a network
+ * retry or a page reload re-sends the same key, so the backend returns the
+ * same order instead of creating a duplicate.
+ */
+function idempotencyKeyFor(payload) {
+  const fingerprint = JSON.stringify(payload);
+  const stored = session.get('checkout_idem');
+  if (stored && stored.fingerprint === fingerprint && Date.now() - stored.at < 30 * 60 * 1000) return stored.key;
+  const key = `chk-${randomToken(20)}`;
+  session.set('checkout_idem', { fingerprint, key, at: Date.now() });
+  return key;
+}
+export function clearCheckoutIdempotency() { session.remove('checkout_idem'); }
+
+/** Create the order, then ask the backend for the Paystack payment link. */
+export async function createOrder(payload) {
+  const order = await api.post('/checkout/', payload, {
+    headers: { 'Idempotency-Key': idempotencyKeyFor(payload) },
+  });
+  const reference = order.reference;
+  const guestToken = order.next_step?.payload?.guest_token || null;
+  rememberOrderAccess(reference, guestToken);
+  const payment = await initializePayment(reference);
+  return { order, reference, payment, authorizationUrl: payment.authorizationUrl };
+}
+
+/** POST /payments/paystack/initialize/ {order_reference, guest_token} */
+export async function initializePayment(orderReference) {
+  const body = { order_reference: orderReference };
+  const token = getOrderAccess(orderReference);
+  if (token) body.guest_token = token;
+  const data = await api.post('/payments/paystack/initialize/', body);
+  session.set(`payment_for:${data.provider_reference}`, orderReference);
+  return {
+    authorizationUrl: data.authorization_url || null,
+    reference: data.provider_reference,
+    paymentReference: data.payment_reference,
+    amount: data.amount ?? null,
+  };
+}
+
+export function saveAddress(form) {
+  return api.post('/customers/addresses/', {
+    kind: 'shipping',
+    label: 'Delivery address',
+    full_name: String(form.full_name || '').trim(),
+    phone: String(form.phone || '').trim(),
+    state: form.state,
+    city: String(form.city || '').trim(),
+    street: String(form.address_line1 || '').trim(),
+    details: String(form.address_line2 || '').trim(),
+    instructions: String(form.delivery_instructions || '').trim(),
+  });
+}
+
+export function validateCheckoutForm(form, { deliveryMethod, pickup = false }) {
   const errors = {};
   if (!String(form.full_name || '').trim()) errors.full_name = 'Enter the full name for this delivery.';
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(form.email || '').trim())) errors.email = 'Enter a valid email address.';
   const phone = String(form.phone || '').replace(/[^\d]/g, '');
-  if (phone.length < 10) errors.phone = 'Enter a valid phone number the rider can reach.';
+  if (phone.length < 10) errors.phone = 'Enter a valid phone number we can reach you on.';
   if (!form.state) errors.state = 'Select your state.';
   if (!String(form.city || '').trim()) errors.city = 'Enter your city or town.';
-  if (!String(form.address_line1 || '').trim()) errors.address_line1 = 'Enter the delivery address.';
+  if (!pickup && !String(form.address_line1 || '').trim()) errors.address_line1 = 'Enter the delivery address.';
   if (!deliveryMethod) errors.delivery_method = 'Choose a delivery method.';
   if (!form.accept_terms) errors.accept_terms = 'Please accept the terms to continue.';
   return errors;
 }
 
-export default { previewCheckout, createOrder, getDeliveryOptions, getDeliverableStates };
+export default { previewCheckout, createOrder, initializePayment, getDeliveryOptions, getDeliverableStates };

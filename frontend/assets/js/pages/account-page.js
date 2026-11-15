@@ -6,8 +6,11 @@
 
 import boot from '../boot.js';
 import api, { normalizeList } from '../api.js';
-import { requireAuth, getUser, updateProfile, changePassword, updateNotificationPreferences, logout } from '../auth.js';
-import { listOrders, statusBadge, downloadReceipt } from '../orders.js';
+import {
+  requireAuth, getUser, updateProfile, changePassword, updateNotificationPreferences, getCustomerProfile, logout,
+} from '../auth.js';
+import { listOrders, statusBadge } from '../orders.js';
+import { listWishlist } from '../wishlist.js';
 import { getDeliverableStates } from '../checkout.js';
 import {
   resolveRegion, renderRegionError, emptyState, skeletons, toast, openDialog,
@@ -26,13 +29,13 @@ if (await requireAuth()) {
 
   const greeting = $('[data-account-greeting]');
   if (greeting) {
-    const name = user?.first_name || user?.full_name || '';
+    const name = String(user?.full_name || '').split(' ')[0];
     greeting.textContent = name ? `Welcome back, ${name}. Manage your profile, addresses and preferences.` : 'Manage your profile, addresses, orders and preferences.';
   }
 
   const profileForm = $('[data-profile-form]');
   if (profileForm) {
-    ['first_name', 'last_name', 'email', 'phone'].forEach((field) => {
+    ['full_name', 'email', 'phone'].forEach((field) => {
       if (profileForm.elements[field] && user?.[field]) profileForm.elements[field].value = user[field];
     });
   }
@@ -47,28 +50,23 @@ if (await requireAuth()) {
   async function loadStats() {
     const region = $('[data-account-stats]');
     try {
-      const data = await api.privateGet('/account/summary/');
+      // Real counts from the customer's own resources (no summary endpoint exists).
+      const [orders, wishlist, addresses] = await Promise.all([
+        listOrders({ page_size: 1 }),
+        listWishlist().catch(() => ({ count: 0 })),
+        api.privateGet('/customers/addresses/').then((d) => normalizeList(d)).catch(() => ({ count: 0 })),
+      ]);
       const stats = [
-        { label: 'Orders placed', value: data.orders_count ?? 0, iconName: 'package' },
-        { label: 'Wishlist items', value: data.wishlist_count ?? 0, iconName: 'heart' },
-        { label: 'Saved addresses', value: data.address_count ?? 0, iconName: 'map-pin' },
+        { label: 'Orders placed', value: orders.count, iconName: 'package', href: '/orders.html' },
+        { label: 'Wishlist items', value: wishlist.count, iconName: 'heart', href: '/wishlist.html' },
+        { label: 'Saved addresses', value: addresses.count, iconName: 'map-pin', href: '#addresses' },
       ];
-      resolveRegion(region, stats.map((stat) => `<div class="stat-card">
+      resolveRegion(region, stats.map((stat) => `<a class="stat-card" href="${esc(stat.href)}">
         <div class="stat-card__head"><span class="stat-card__label">${esc(stat.label)}</span><span class="stat-card__icon">${icon(stat.iconName, { size: 'sm' })}</span></div>
         <span class="stat-card__value">${esc(stat.value)}</span>
-      </div>`).join(''));
-    } catch {
-      // Fall back to counts we can obtain without a dedicated summary endpoint.
-      try {
-        const orders = await listOrders({ page_size: 1 });
-        resolveRegion(region, `<div class="stat-card">
-          <div class="stat-card__head"><span class="stat-card__label">Orders placed</span><span class="stat-card__icon">${icon('package', { size: 'sm' })}</span></div>
-          <span class="stat-card__value">${esc(orders.count)}</span>
-          <a class="t-sm" href="/orders.html">View orders</a>
-        </div>`);
-      } catch (error) {
-        renderRegionError(region, error, loadStats);
-      }
+      </a>`).join(''));
+    } catch (error) {
+      renderRegionError(region, error, loadStats);
     }
   }
 
@@ -79,7 +77,7 @@ if (await requireAuth()) {
   async function loadAddresses() {
     const region = $('[data-addresses]');
     try {
-      const data = await api.privateGet('/account/addresses/');
+      const data = await api.privateGet('/customers/addresses/');
       const addresses = normalizeList(data).results;
       if (!addresses.length) {
         resolveRegion(region, emptyState({
@@ -96,7 +94,7 @@ if (await requireAuth()) {
           </div>
           <p class="address-card__body">
             ${esc(address.full_name || '')}<br>
-            ${esc(address.address_line1 || '')}${address.address_line2 ? `<br>${esc(address.address_line2)}` : ''}<br>
+            ${esc(address.street || '')}${address.details ? `<br>${esc(address.details)}` : ''}<br>
             ${esc([address.city, address.state].filter(Boolean).join(', '))}<br>
             ${esc(address.phone || '')}
           </p>
@@ -126,8 +124,8 @@ if (await requireAuth()) {
             <select class="select" id="ad-state" name="state" required><option value="">Select state</option>${statesCache.map((s) => `<option value="${esc(s)}" ${existing?.state === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>
             <p class="field__error" data-error-for="state"></p></div>
           <div class="field form-grid__full"><label class="field__label" for="ad-city">City <span class="field__req">*</span></label><input class="input" id="ad-city" name="city" required value="${esc(existing?.city || '')}"><p class="field__error" data-error-for="city"></p></div>
-          <div class="field form-grid__full"><label class="field__label" for="ad-line1">Address <span class="field__req">*</span></label><input class="input" id="ad-line1" name="address_line1" required value="${esc(existing?.address_line1 || '')}"><p class="field__error" data-error-for="address_line1"></p></div>
-          <div class="field form-grid__full"><label class="field__label" for="ad-line2">Additional details</label><input class="input" id="ad-line2" name="address_line2" value="${esc(existing?.address_line2 || '')}"></div>
+          <div class="field form-grid__full"><label class="field__label" for="ad-line1">Address <span class="field__req">*</span></label><input class="input" id="ad-line1" name="street" required value="${esc(existing?.street || '')}"><p class="field__error" data-error-for="address_line1"></p></div>
+          <div class="field form-grid__full"><label class="field__label" for="ad-line2">Additional details</label><input class="input" id="ad-line2" name="details" value="${esc(existing?.details || '')}"></div>
         </div>
         <label class="checkbox"><input type="checkbox" name="is_default" ${existing?.is_default ? 'checked' : ''}><span>Use as my default delivery address</span></label>
       </form>`,
@@ -138,8 +136,8 @@ if (await requireAuth()) {
           const values = formData(form);
           try {
             await withSubmit(form, event.currentTarget, () => (existing
-              ? api.patch(`/account/addresses/${existing.id}/`, values)
-              : api.post('/account/addresses/', values)));
+              ? api.patch(`/customers/addresses/${existing.id}/`, { ...values, is_default: !!values.is_default })
+              : api.post('/customers/addresses/', { kind: 'shipping', ...values, is_default: !!values.is_default })));
             close();
             toast('Address saved.', { type: 'success' });
             loadAddresses();
@@ -154,7 +152,7 @@ if (await requireAuth()) {
   async function loadPayments() {
     const region = $('[data-account-payments]');
     try {
-      const data = await api.privateGet('/account/payments/', { params: { page_size: 10 } });
+      const data = await api.privateGet('/payments/mine/');
       const payments = normalizeList(data).results;
       if (!payments.length) {
         resolveRegion(region, emptyState({ title: 'No payments yet', text: 'Your payment receipts will appear here.', iconName: 'credit-card', inline: true }));
@@ -165,7 +163,7 @@ if (await requireAuth()) {
         <thead><tr><th scope="col">Reference</th><th scope="col">Date</th><th scope="col">Status</th><th scope="col" class="num">Amount</th></tr></thead>
         <tbody>${payments.map((payment) => `<tr>
           <td data-label="Reference"><span class="table__primary">${esc(payment.reference)}</span></td>
-          <td data-label="Date">${esc(formatDate(payment.created_at))}</td>
+          <td data-label="Date">${esc(formatDate(payment.verified_at || payment.initialized_at))}</td>
           <td data-label="Status">${statusBadge(payment.status)}</td>
           <td data-label="Amount" class="num">${esc(formatMoney(payment.amount, payment.currency || 'NGN'))}</td>
         </tr>`).join('')}</tbody>
@@ -180,7 +178,7 @@ if (await requireAuth()) {
   async function loadReviews() {
     const region = $('[data-account-reviews]');
     try {
-      const data = await api.privateGet('/account/reviews/');
+      const data = await api.privateGet('/reviews/mine/');
       const reviews = normalizeList(data).results;
       if (!reviews.length) {
         resolveRegion(region, emptyState({ title: 'You have not written a review yet', text: 'Reviews help other shoppers choose with confidence.', iconName: 'star', inline: true }));
@@ -189,8 +187,8 @@ if (await requireAuth()) {
       resolveRegion(region, `<div class="card"><div class="card__body">${reviews.map((review) => `
         <article class="review">
           <div class="review__head">
-            <span class="t-sm t-semibold">${esc(review.product?.name || 'Product')}</span>
-            <span class="badge badge--${review.is_approved ? 'success' : 'warning'}">${review.is_approved ? 'Published' : 'Awaiting moderation'}</span>
+            <span class="t-sm t-semibold">${esc(review.product_name || 'Product')}</span>
+            <span class="badge badge--${review.moderation_status === 'approved' ? 'success' : review.moderation_status === 'rejected' ? 'danger' : 'warning'}">${review.moderation_status === 'approved' ? 'Published' : review.moderation_status === 'rejected' ? 'Not published' : 'Awaiting moderation'}</span>
           </div>
           ${review.title ? `<p class="review__title">${esc(review.title)}</p>` : ''}
           <p class="review__body">${esc(review.body || review.comment || '')}</p>
@@ -207,7 +205,7 @@ if (await requireAuth()) {
     const form = $('[data-preferences-form]');
     if (!form) return;
     try {
-      const prefs = await api.privateGet('/auth/me/notification-preferences/');
+      const prefs = await getCustomerProfile();
       Object.entries(prefs || {}).forEach(([key, value]) => {
         if (form.elements[key]) form.elements[key].checked = !!value;
       });
@@ -221,7 +219,10 @@ if (await requireAuth()) {
   profileForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     try {
-      await withSubmit(profileForm, profileForm.querySelector('button[type="submit"]'), () => updateProfile(formData(profileForm)));
+      await withSubmit(profileForm, profileForm.querySelector('button[type="submit"]'), () => {
+        const { full_name, phone } = formData(profileForm);
+        return updateProfile({ full_name, phone });
+      });
       toast('Profile updated.', { type: 'success' });
     } catch { /* rendered on form */ }
   });
@@ -246,7 +247,11 @@ if (await requireAuth()) {
     event.preventDefault();
     const form = event.currentTarget;
     try {
-      await withSubmit(form, form.querySelector('button[type="submit"]'), () => updateNotificationPreferences(formData(form)));
+      await withSubmit(form, form.querySelector('button[type="submit"]'), () => updateNotificationPreferences({
+        order_update_emails: !!form.elements.order_update_emails?.checked,
+        marketing_emails: !!form.elements.marketing_emails?.checked,
+        sms_updates: !!form.elements.sms_updates?.checked,
+      }));
       toast('Notification preferences saved.', { type: 'success' });
     } catch { /* rendered on form */ }
   });
@@ -265,7 +270,7 @@ if (await requireAuth()) {
     if (del) {
       const confirmed = await confirmDialog({ title: 'Delete this address?', message: 'It will be removed from your account.', confirmLabel: 'Delete', tone: 'danger' });
       if (!confirmed) return;
-      try { await api.delete(`/account/addresses/${del.dataset.addressDelete}/`); toast('Address deleted.', { type: 'success' }); loadAddresses(); }
+      try { await api.delete(`/customers/addresses/${del.dataset.addressDelete}/`); toast('Address deleted.', { type: 'success' }); loadAddresses(); }
       catch (error) { toast(error.userMessage, { type: 'danger' }); }
       return;
     }
@@ -273,7 +278,7 @@ if (await requireAuth()) {
     const makeDefault = event.target.closest('[data-address-default]');
     if (makeDefault) {
       try {
-        await api.post(`/account/addresses/${makeDefault.dataset.addressDefault}/set-default/`, {});
+        await api.patch(`/customers/addresses/${makeDefault.dataset.addressDefault}/`, { is_default: true });
         toast('Default address updated.', { type: 'success' });
         loadAddresses();
       } catch (error) { toast(error.userMessage, { type: 'danger' }); }

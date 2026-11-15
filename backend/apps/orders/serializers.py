@@ -5,10 +5,11 @@ from .models import Order, OrderItem, OrderStatusLog
 
 class OrderItemSerializer(serializers.ModelSerializer):
     variation_options = serializers.JSONField(source="variation.options", read_only=True, default=None)
+    product_slug = serializers.CharField(source="product.slug", read_only=True, default=None)
 
     class Meta:
         model = OrderItem
-        fields = ["id", "product", "product_name", "sku", "variation", "variation_label",
+        fields = ["id", "product", "product_name", "product_slug", "sku", "variation", "variation_label",
                   "variation_options", "unit_price", "quantity", "line_total", "customization",
                   "reference_image"]
 

@@ -9,6 +9,10 @@
  */
 
 import api from './api.js';
+import { createStorage } from './utils.js';
+import { getOrderAccess, initializePayment } from './checkout.js';
+
+const session = createStorage('session');
 
 const PAYSTACK_HOSTS = ['checkout.paystack.com', 'paystack.com', 'standard.paystack.co'];
 
@@ -16,6 +20,10 @@ const PAYSTACK_HOSTS = ['checkout.paystack.com', 'paystack.com', 'standard.payst
 export function isTrustedPaystackUrl(url) {
   try {
     const parsed = new URL(url);
+    // Local development only: a mock gateway on this machine (see docs). Never
+    // reachable in production because the page itself is not served from localhost.
+    const local = ['localhost', '127.0.0.1'];
+    if (local.includes(window.location.hostname) && local.includes(parsed.hostname)) return true;
     if (parsed.protocol !== 'https:') return false;
     return PAYSTACK_HOSTS.some((host) => parsed.hostname === host || parsed.hostname.endsWith(`.${host}`));
   } catch {
@@ -31,24 +39,30 @@ export function redirectToPaystack(authorizationUrl) {
 }
 
 /**
- * Ask the backend to independently verify a transaction.
- * @param {string} reference
- * @returns {Promise<{status:string, order:object|null, payment:object|null, message:string}>}
+ * Ask the backend to verify a transaction with Paystack (server-to-server).
+ * POST /payments/paystack/verify/ {reference, guest_token?}
+ *
+ * The browser being redirected back from Paystack proves nothing: only this
+ * verified response (or the signed webhook) marks an order as paid.
+ *
+ * @param {string} reference Paystack transaction reference (?reference= / ?trxref=)
+ * @param {string} [orderReference] order reference from ?order=, used to find the guest token
  */
-export async function verifyPayment(reference) {
-  const data = await api.privateGet('/payments/verify/', { params: { reference } });
-  return normalizeVerification(data);
+export async function verifyPayment(reference, orderReference = null) {
+  const orderRef = orderReference || session.get(`payment_for:${reference}`) || null;
+  const body = { reference };
+  const token = orderRef ? getOrderAccess(orderRef) : null;
+  if (token) body.guest_token = token;
+  const data = await api.post('/payments/paystack/verify/', body);
+  return normalizeVerification(data, { reference, guest: !!token });
 }
 
-/**
- * Poll verification while a transaction is pending, with capped backoff.
- * Never runs forever: after `maxAttempts` the UI shows the pending state.
- */
-export async function pollVerification(reference, { maxAttempts = 5, onUpdate } = {}) {
+/** Poll a pending transaction with backoff. Never loops forever. */
+export async function pollVerification(reference, { maxAttempts = 5, onUpdate, orderReference = null } = {}) {
   let attempt = 0;
   let result = null;
   while (attempt < maxAttempts) {
-    result = await verifyPayment(reference);
+    result = await verifyPayment(reference, orderReference);
     onUpdate?.(result, attempt + 1);
     if (result.status !== 'pending') return result;
     attempt += 1;
@@ -57,33 +71,35 @@ export async function pollVerification(reference, { maxAttempts = 5, onUpdate } 
   return result;
 }
 
-/**
- * Normalize the backend's payment status vocabulary into the seven states the
- * UI must present. Unknown values are treated as pending, never as success.
- */
-export function normalizeVerification(data) {
-  const payment = data?.payment || data || {};
-  const raw = String(payment.status || data?.status || '').toLowerCase();
+/** Backend Payment.Status → the five states the result pages render. */
+export function normalizeVerification(data, { reference = null, guest = false } = {}) {
+  const raw = String(data?.payment_status || '').toLowerCase();
   const map = {
-    success: 'success', successful: 'success', paid: 'success', completed: 'success',
-    pending: 'pending', processing: 'pending', queued: 'pending', ongoing: 'pending', initiated: 'pending',
-    failed: 'failed', failure: 'failed', declined: 'failed', error: 'failed',
-    abandoned: 'abandoned', cancelled: 'abandoned', canceled: 'abandoned',
+    successful: 'success', success: 'success',
+    pending: 'pending', initialized: 'pending', processing: 'pending',
+    failed: 'failed',
+    abandoned: 'abandoned', cancelled: 'abandoned',
     reversed: 'reversed',
-    refunded: 'refunded',
-    partially_refunded: 'partially_refunded', 'partially-refunded': 'partially_refunded',
+    refunded: 'refunded', partially_refunded: 'partially_refunded',
   };
   const status = map[raw] || 'pending';
+  const orderReference = data?.order_reference || null;
   return {
     status,
     rawStatus: raw,
-    order: data?.order || payment.order || null,
-    payment,
-    reference: payment.reference || data?.reference || null,
-    message: data?.message || data?.detail || payment.gateway_response || '',
-    amount: payment.amount ?? null,
-    currency: payment.currency || 'NGN',
-    paidAt: payment.paid_at || payment.paidAt || null,
+    reference: orderReference || reference,
+    paymentReference: reference,
+    order: orderReference ? {
+      reference: orderReference,
+      status: data.order_status || null,
+      payment_status: data.order_payment_status || null,
+      access_url: `/order-detail.html?reference=${encodeURIComponent(orderReference)}`,
+      is_guest: guest,
+    } : null,
+    message: data?.failure_reason || '',
+    amount: data?.amount ?? null,
+    currency: 'NGN',
+    paidAt: data?.verified_at || null,
   };
 }
 
@@ -118,13 +134,14 @@ export const PAYMENT_COPY = {
   },
 };
 
-/** Retry payment for an existing pending order. */
+/**
+ * Start a fresh Paystack transaction for an order that is still awaiting
+ * payment (POST /payments/paystack/initialize/). The backend refuses if the
+ * order is already paid, cancelled or expired.
+ */
 export async function retryPayment(orderReference) {
-  const data = await api.post(`/orders/${encodeURIComponent(orderReference)}/retry-payment/`, {});
-  return {
-    authorizationUrl: data.payment?.authorization_url || data.authorization_url || null,
-    reference: data.payment?.reference || data.reference || orderReference,
-  };
+  const payment = await initializePayment(orderReference);
+  return { authorizationUrl: payment.authorizationUrl, reference: payment.reference };
 }
 
 export default { verifyPayment, pollVerification, redirectToPaystack, retryPayment };

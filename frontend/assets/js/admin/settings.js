@@ -1,228 +1,193 @@
 /**
- * settings.js — business settings, homepage, content and SEO configuration.
- * Each form reads the current values from the backend and PATCHes changes.
- * No setting is invented client-side.
+ * settings.js — business, homepage-hero and SEO settings forms.
+ *
+ *   business / homepage → GET|PATCH /api/cms/admin/settings/  body { values: {...} }   (settings.manage)
+ *   seo                 → GET|PATCH /api/seo/settings/        body { ...keys }         (seo.manage)
+ *
+ * Field keys may be dotted ("homepage_hero.title"); the parent object is always
+ * sent whole because the backend replaces top-level keys.
+ * Images are stored as media storage keys (see media-field.js).
  */
-import { initAdmin, guardPermission } from './admin-core.js';
+import { initAdmin, guardPermission, applyPermissions } from './admin-core.js';
 import api from '../api.js';
-import { skeletons, resolveRegion, renderRegionError, toast, withSubmit, formData, applyFormErrors } from '../ui.js';
+import { skeletons, resolveRegion, renderRegionError, toast, withSubmit, applyFormErrors } from '../ui.js';
 import { hydrateIcons } from '../icons.js';
 import { esc, $ } from '../utils.js';
-import { BUSINESS_NAME } from '../site.js';
+import { mediaKeyControl, bindMediaKeyControls } from './media-field.js';
 
-// The guard redirects (or renders an access-denied state) and returns false.
-// We simply do not run the page body — no thrown error, no console noise.
+const CMS = { endpoint: '/cms/admin/settings/', permission: 'settings.manage', wrap: (values) => ({ values }) };
+
+const SCHEMAS = {
+  business: { ...CMS, sections: [
+    { title: 'Identity', fields: [
+      { key: 'business_name', label: 'Business name', required: true, full: true },
+      { key: 'business_description', label: 'Business description', type: 'textarea', rows: 3 },
+      { key: 'logo_key', label: 'Logo', type: 'mediakey', kind: 'logo' },
+      { key: 'favicon_key', label: 'Favicon', type: 'mediakey', kind: 'logo' },
+    ]},
+    { title: 'Contact', fields: [
+      { key: 'contact_email', label: 'Contact email', type: 'email' },
+      { key: 'contact_phone', label: 'Phone number', type: 'tel' },
+      { key: 'business_address', label: 'Business address', type: 'textarea', rows: 2 },
+      { key: 'support_hours', label: 'Support hours', placeholder: 'Mon–Sat, 9am–6pm' },
+    ]},
+    { title: 'Social links', fields: [
+      { key: 'social_links.facebook', label: 'Facebook URL', type: 'url' },
+      { key: 'social_links.instagram', label: 'Instagram URL', type: 'url' },
+      { key: 'social_links.x', label: 'X (Twitter) URL', type: 'url' },
+      { key: 'social_links.whatsapp', label: 'WhatsApp link', type: 'url', placeholder: 'https://wa.me/234…' },
+    ]},
+    { title: 'Store', fields: [
+      { key: 'currency', label: 'Currency', type: 'readonly', hint: 'Payments are taken in Naira; this cannot be changed here.' },
+      { key: 'refund_window_days', label: 'Refund window (days)', type: 'number', min: 0, hint: 'How long after delivery a customer may request a refund.' },
+    ]},
+  ]},
+  homepage: { ...CMS, sections: [
+    { title: 'Hero', fields: [
+      { key: 'homepage_hero.title', label: 'Headline', required: true, full: true },
+      { key: 'homepage_hero.subtitle', label: 'Supporting text', type: 'textarea', rows: 2 },
+      { key: 'homepage_hero.cta_label', label: 'Button label' },
+      { key: 'homepage_hero.cta_url', label: 'Button link', placeholder: '/shop.html' },
+      { key: 'homepage_hero.image_key', label: 'Hero image', type: 'mediakey', kind: 'banner' },
+    ]},
+    { title: 'Footer', fields: [
+      { key: 'footer_text', label: 'Footer note', type: 'textarea', rows: 2 },
+    ]},
+  ]},
+  seo: { endpoint: '/seo/settings/', permission: 'seo.manage', wrap: (values) => values, sections: [
+    { title: 'Defaults', fields: [
+      { key: 'default_title_template', label: 'Page title template', full: true, required: true, hint: 'Use {title} where the page name should appear.',
+        validate: (v) => (String(v).includes('{title}') ? '' : 'The template must contain {title}.') },
+      { key: 'default_meta_description', label: 'Default meta description', type: 'textarea', rows: 3 },
+      { key: 'default_og_site_name', label: 'Site name for social sharing' },
+      { key: 'canonical_base_url', label: 'Canonical site address', type: 'url', placeholder: 'https://www.your-domain.com' },
+    ]},
+    { title: 'Homepage', fields: [
+      { key: 'homepage_seo_title', label: 'Homepage title', full: true },
+      { key: 'homepage_seo_description', label: 'Homepage meta description', type: 'textarea', rows: 3 },
+      { key: 'homepage_og_image_key', label: 'Social sharing image', type: 'mediakey', kind: 'banner' },
+    ]},
+    { title: 'Indexing', fields: [
+      { key: 'robots_meta_default', label: 'Search engine indexing', type: 'select', options: [
+        ['index, follow', 'Allow indexing (index, follow)'], ['noindex, nofollow', 'Block indexing (noindex, nofollow)'], ['noindex, follow', 'noindex, follow'], ['index, nofollow', 'index, nofollow']] },
+      { key: 'enable_prerender', label: 'Serve pre-rendered pages to search engines', type: 'switch' },
+    ]},
+  ]},
+};
+
+const getPath = (object, path) => path.split('.').reduce((value, part) => (value == null ? undefined : value[part]), object);
+
+function renderField(field, values) {
+  const raw = getPath(values, field.key);
+  const value = raw ?? '';
+  const id = `s-${field.key.replace(/\./g, '-')}`;
+  const full = field.full || ['textarea', 'mediakey'].includes(field.type);
+  const label = `<label class="field__label" for="${id}">${esc(field.label)}${field.required ? ' <span class="field__req">*</span>' : ''}</label>`;
+  const hint = field.hint ? `<p class="field__hint">${esc(field.hint)}</p>` : '';
+  const error = `<p class="field__error" data-error-for="${esc(field.key)}"></p>`;
+  const wrap = (control) => `<div class="field ${full ? 'form-grid__full' : ''}">${label}${control}${hint}${error}</div>`;
+  const name = esc(field.key);
+  switch (field.type) {
+    case 'textarea':
+      return wrap(`<textarea class="textarea" id="${id}" name="${name}" rows="${field.rows || 4}">${esc(value)}</textarea>`);
+    case 'switch':
+      return `<div class="field ${full ? 'form-grid__full' : ''}"><label class="switch"><input type="checkbox" id="${id}" name="${name}" ${raw ? 'checked' : ''}><span class="switch__track"></span><span>${esc(field.label)}</span></label>${hint}</div>`;
+    case 'select': {
+      const options = field.options.some(([v]) => v === value) || !value ? field.options : [[value, value], ...field.options];
+      return wrap(`<select class="select" id="${id}" name="${name}">${options.map(([v, text]) => `<option value="${esc(v)}" ${v === value ? 'selected' : ''}>${esc(text)}</option>`).join('')}</select>`);
+    }
+    case 'mediakey':
+      return wrap(mediaKeyControl({ id, name: field.key, value, kind: field.kind }));
+    case 'readonly':
+      return wrap(`<input class="input" id="${id}" value="${esc(value)}" readonly>`);
+    case 'number':
+      return wrap(`<input class="input" id="${id}" name="${name}" type="number" inputmode="numeric" step="1" ${field.min != null ? `min="${field.min}"` : ''} value="${esc(value)}">`);
+    default:
+      return wrap(`<input class="input" id="${id}" name="${name}" type="${['email', 'url', 'tel'].includes(field.type) ? field.type : 'text'}" value="${esc(value)}" ${field.placeholder ? `placeholder="${esc(field.placeholder)}"` : ''} ${field.required ? 'required' : ''}>`);
+  }
+}
+
 if (await initAdmin()) {
   const holder = $('[data-admin-settings]');
-  const kind = holder?.dataset.adminSettings;
+  const schema = SCHEMAS[holder?.dataset.adminSettings];
+  const fields = schema ? schema.sections.flatMap((section) => section.fields) : [];
+  let original = {};
 
-  const SCHEMAS = {
-    business: {
-      endpoint: '/admin/settings/business/',
-      permission: 'settings.update',
-      sections: [
-        { title: 'Identity', fields: [
-          { key: 'name', label: 'Business name', default: BUSINESS_NAME, required: true, full: true },
-          { key: 'description', label: 'Business description', type: 'textarea', rows: 3, full: true },
-          { key: 'logo', label: 'Logo', type: 'image' },
-          { key: 'favicon', label: 'Favicon', type: 'image' },
-        ]},
-        { title: 'Contact', fields: [
-          { key: 'email', label: 'Contact email', type: 'email' },
-          { key: 'phone', label: 'Phone number', type: 'tel' },
-          { key: 'address', label: 'Business address', type: 'textarea', rows: 2, full: true },
-          { key: 'support_hours', label: 'Support hours' },
-        ]},
-        { title: 'Store', fields: [
-          { key: 'currency', label: 'Currency', type: 'select', options: ['NGN'], default: 'NGN', hint: 'The backend remains authoritative for every amount.' },
-          { key: 'country', label: 'Primary market', default: 'Nigeria' },
-          { key: 'social_facebook', label: 'Facebook URL', type: 'url' },
-          { key: 'social_instagram', label: 'Instagram URL', type: 'url' },
-          { key: 'social_twitter', label: 'X / Twitter URL', type: 'url' },
-          { key: 'social_linkedin', label: 'LinkedIn URL', type: 'url' },
-          { key: 'social_whatsapp', label: 'WhatsApp URL', type: 'url' },
-        ]},
-      ],
-    },
-    homepage: {
-      endpoint: '/admin/settings/homepage/',
-      permission: 'content.update',
-      sections: [
-        { title: 'Hero', fields: [
-          { key: 'hero_eyebrow', label: 'Eyebrow text' },
-          { key: 'hero_title', label: 'Hero headline', required: true, full: true },
-          { key: 'hero_subtitle', label: 'Hero subheading', type: 'textarea', rows: 2, full: true },
-          { key: 'hero_image', label: 'Hero image', type: 'image', full: true },
-          { key: 'hero_image_alt', label: 'Hero image alt text', full: true },
-          { key: 'hero_primary_label', label: 'Primary button label' },
-          { key: 'hero_primary_url', label: 'Primary button URL' },
-          { key: 'hero_secondary_label', label: 'Secondary button label' },
-          { key: 'hero_secondary_url', label: 'Secondary button URL' },
-        ]},
-        { title: 'Sections', fields: [
-          { key: 'show_categories', label: 'Show shop by category', type: 'switch', default: true },
-          { key: 'show_featured', label: 'Show featured products', type: 'switch', default: true },
-          { key: 'show_new_arrivals', label: 'Show new arrivals', type: 'switch', default: true },
-          { key: 'show_best_sellers', label: 'Show best sellers', type: 'switch', default: true },
-          { key: 'show_reviews', label: 'Show customer reviews', type: 'switch', default: true },
-          { key: 'show_newsletter', label: 'Show newsletter signup', type: 'switch', default: true },
-        ]},
-        { title: 'Why shop with us', fields: [
-          { key: 'trust_items_json', label: 'Trust items (JSON array)', type: 'textarea', rows: 6, full: true, hint: 'Array of {icon, title, text}. Only publish claims the business can substantiate.' },
-        ]},
-        { title: 'Footer', fields: [
-          { key: 'footer_note', label: 'Footer note', type: 'textarea', rows: 2, full: true },
-        ]},
-      ],
-    },
-    content: {
-      endpoint: '/admin/settings/content/',
-      permission: 'content.update',
-      sections: [
-        { title: 'About', fields: [{ key: 'about_html', label: 'About us page', type: 'richtext' }] },
-        { title: 'Policies', fields: [
-          { key: 'privacy_html', label: 'Privacy policy', type: 'richtext' },
-          { key: 'terms_html', label: 'Terms and conditions', type: 'richtext' },
-          { key: 'shipping_html', label: 'Shipping policy', type: 'richtext' },
-          { key: 'returns_html', label: 'Returns and refund policy', type: 'richtext' },
-        ]},
-        { title: 'Policy summaries', fields: [
-          { key: 'shipping_summary', label: 'Shipping summary (shown on product pages)', type: 'textarea', rows: 2, full: true },
-          { key: 'returns_summary', label: 'Returns summary (shown on product pages)', type: 'textarea', rows: 2, full: true },
-        ]},
-      ],
-    },
-    seo: {
-      endpoint: '/admin/settings/seo/',
-      permission: 'seo.update',
-      sections: [
-        { title: 'Defaults', fields: [
-          { key: 'site_title', label: 'Default site title', full: true },
-          { key: 'title_suffix', label: 'Title suffix', hint: 'Appended to page titles, e.g. " — Starmond Technology Limited".' },
-          { key: 'meta_description', label: 'Default meta description', type: 'textarea', rows: 3, full: true },
-          { key: 'canonical_domain', label: 'Canonical domain', type: 'url', hint: 'https://your-store-domain.example' },
-        ]},
-        { title: 'Social sharing', fields: [
-          { key: 'og_image', label: 'Default social share image', type: 'image', full: true },
-          { key: 'twitter_handle', label: 'X / Twitter handle' },
-        ]},
-        { title: 'Indexing', fields: [
-          { key: 'allow_indexing', label: 'Allow search engine indexing', type: 'switch', default: true },
-          { key: 'sitemap_enabled', label: 'Generate XML sitemap', type: 'switch', default: true },
-          { key: 'robots_extra', label: 'Additional robots.txt directives', type: 'textarea', rows: 3, full: true },
-          { key: 'verification_google', label: 'Google site verification token' },
-          { key: 'verification_bing', label: 'Bing site verification token' },
-        ]},
-      ],
-    },
-  };
-
-  const schema = SCHEMAS[kind];
-
-  function renderForm(values) {
-    return `<form class="admin-form" data-settings-form novalidate>
+  const renderForm = (values) => `<form class="admin-form" data-settings-form novalidate>
       <div class="alert alert--danger" data-form-error hidden role="alert"></div>
       ${schema.sections.map((section) => `
         <div class="admin-form__section">
           <p class="admin-form__section-title">${esc(section.title)}</p>
-          <div class="form-grid">
-            ${section.fields.map((field) => renderField(field, values)).join('')}
-          </div>
+          <div class="form-grid">${section.fields.map((field) => renderField(field, values)).join('')}</div>
         </div>`).join('')}
       <div class="admin-form__foot">
-        <button type="button" class="btn btn--secondary" data-reset-settings>Reset</button>
+        <button type="button" class="btn btn--secondary" data-reset-settings>Discard changes</button>
         <button type="submit" class="btn btn--primary" data-pending-label="Saving" data-perm="${esc(schema.permission)}">Save changes</button>
       </div>
     </form>`;
+
+  function collect(form) {
+    const errors = {};
+    const body = {};
+    fields.forEach((field) => {
+      if (field.type === 'readonly') return;
+      const control = form.elements[field.key];
+      if (!control) return;
+      let value = field.type === 'switch' ? control.checked : control.value.trim();
+      if (field.required && !value) errors[field.key] = `${field.label} is required.`;
+      else if (field.type === 'email' && value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) errors[field.key] = 'Enter a valid email address.';
+      else if (field.type === 'url' && value && !/^https?:\/\/\S+$/i.test(value)) errors[field.key] = 'Enter a full address starting with https://';
+      else if (field.type === 'number' && value !== '' && (!/^\d+$/.test(value) || Number(value) < (field.min ?? 0))) errors[field.key] = 'Enter a whole number.';
+      else if (field.validate && value) { const message = field.validate(value); if (message) errors[field.key] = message; }
+      if (field.type === 'number' && value !== '') value = String(Number(value));
+      const [top, child] = field.key.split('.');
+      if (child) {
+        // Send the whole parent object: the backend replaces top-level keys.
+        body[top] = body[top] || { ...(original[top] || {}) };
+        body[top][child] = value;
+      } else {
+        body[top] = value;
+      }
+    });
+    return { errors, body };
   }
 
-  function renderField(field, values) {
-    const value = values?.[field.key] ?? field.default ?? '';
-    const id = `s-${field.key}`;
-    const full = field.full || ['textarea', 'richtext', 'image'].includes(field.type);
-    const label = `<label class="field__label" for="${id}">${esc(field.label)}${field.required ? ' <span class="field__req">*</span>' : ''}</label>`;
-    const hint = field.hint ? `<p class="field__hint">${esc(field.hint)}</p>` : '';
-    const error = `<p class="field__error" data-error-for="${esc(field.key)}"></p>`;
-    const wrap = (control) => `<div class="field ${full ? 'form-grid__full' : ''}">${label}${control}${hint}${error}</div>`;
-
-    switch (field.type) {
-      case 'textarea':
-      case 'richtext':
-        return wrap(`<textarea class="textarea" id="${id}" name="${esc(field.key)}" rows="${field.rows || 4}">${esc(value)}</textarea>`);
-      case 'switch':
-        return `<div class="field ${full ? 'form-grid__full' : ''}">
-          <label class="switch"><input type="checkbox" id="${id}" name="${esc(field.key)}" ${value ? 'checked' : ''}><span class="switch__track"></span><span>${esc(field.label)}</span></label>${hint}</div>`;
-      case 'select':
-        return wrap(`<select class="select" id="${id}" name="${esc(field.key)}">${(field.options || []).map((option) => `<option value="${esc(option)}" ${String(value) === String(option) ? 'selected' : ''}>${esc(option)}</option>`).join('')}</select>`);
-      case 'image':
-        return wrap(`<div class="stack stack--sm">
-          ${value ? `<img src="${esc(value)}" alt="" width="140" height="80" style="object-fit:contain;border:1px solid var(--color-border);border-radius:var(--radius-md);background:var(--color-surface-alt)">` : ''}
-          <input class="input" id="${id}" name="${esc(field.key)}" type="file" accept="image/*"></div>`);
-      default:
-        return wrap(`<input class="input" id="${id}" name="${esc(field.key)}" type="${field.type === 'email' ? 'email' : field.type === 'url' ? 'url' : field.type === 'tel' ? 'tel' : 'text'}" value="${esc(value)}" ${field.required ? 'required' : ''}>`);
-    }
+  function mount(values) {
+    resolveRegion(holder, renderForm(values));
+    hydrateIcons(holder);
+    applyPermissions(holder);
+    const form = holder.querySelector('[data-settings-form]');
+    bindMediaKeyControls(form);
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      applyFormErrors(form, {});
+      const { errors, body } = collect(form);
+      if (Object.keys(errors).length) {
+        applyFormErrors(form, errors);
+        form.elements[Object.keys(errors)[0]]?.focus();
+        return;
+      }
+      try {
+        const saved = await withSubmit(form, form.querySelector('button[type="submit"]'), () => api.patch(schema.endpoint, schema.wrap(body)));
+        api.invalidate();
+        original = saved || { ...original, ...body };
+        toast('Settings saved. The storefront shows them on its next page load.', { type: 'success' });
+        mount(original);
+      } catch { /* shown on the form by withSubmit */ }
+    });
+    holder.querySelector('[data-reset-settings]').addEventListener('click', () => mount(original));
   }
-
-  let original = null;
 
   async function load() {
     holder.setAttribute('aria-busy', 'true');
     holder.innerHTML = skeletons.form(6);
     try {
-      original = await api.privateGet(schema.endpoint);
-      resolveRegion(holder, renderForm(original));
-      const { applyPermissions } = await import('./admin-core.js');
-      applyPermissions(holder);
-      bind();
+      original = await api.get(schema.endpoint, { cache: false, dedupe: false });
+      mount(original);
     } catch (error) {
       renderRegionError(holder, error, load, { title: 'Settings could not be loaded' });
     }
   }
 
-  function bind() {
-    const form = holder.querySelector('[data-settings-form]');
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const values = formData(form);
-      const errors = {};
-      schema.sections.forEach((section) => section.fields.forEach((field) => {
-        if (field.required && !String(values[field.key] || '').trim()) errors[field.key] = `${field.label} is required.`;
-        if (field.type === 'switch') values[field.key] = form.elements[field.key]?.checked ?? false;
-      }));
-      if (Object.keys(errors).length) { applyFormErrors(form, errors); return; }
-
-      const files = [];
-      schema.sections.forEach((section) => section.fields.forEach((field) => {
-        if (field.type !== 'image') return;
-        const input = form.elements[field.key];
-        if (input?.files?.length) { files.push({ key: field.key, file: input.files[0] }); delete values[field.key]; }
-        else delete values[field.key];
-      }));
-
-      try {
-        await withSubmit(form, form.querySelector('button[type="submit"]'), async () => {
-          if (files.length) {
-            const fd = new FormData();
-            Object.entries(values).forEach(([key, value]) => fd.append(key, String(value)));
-            files.forEach(({ key, file }) => fd.append(key, file));
-            return api.upload(schema.endpoint, fd, { method: 'PATCH' });
-          }
-          return api.patch(schema.endpoint, values);
-        });
-        api.invalidate();
-        toast('Settings saved. The storefront will pick them up on next load.', { type: 'success' });
-        load();
-      } catch { /* rendered on form */ }
-    });
-
-    holder.querySelector('[data-reset-settings]')?.addEventListener('click', () => {
-      resolveRegion(holder, renderForm(original));
-      bind();
-    });
-  }
-
-  if (schema) {
-    guardPermission(schema.permission.replace('.update', '.view'));
-    load();
-  }
+  if (schema && guardPermission(schema.permission)) load();
 }

@@ -2,11 +2,13 @@
  * search.js — backend-powered search with debounced suggestions.
  *
  * The browser never downloads the catalogue to search it locally. Every query
- * hits `/search/suggest/` (lightweight) or `/products/?search=` (full results).
+ * hits `/products/search/?q=` (ranked) or `/products/?q=&ordering=` (sorted).
  * In-flight requests are aborted when the query changes.
  */
 
-import api, { normalizeList } from './api.js';
+import { normalizeList } from './api.js';
+import { searchProducts, listProducts } from './products.js';
+import { getCategories, flattenTree } from './categories.js';
 import { debounce, esc, enc, $, readQuery } from './utils.js';
 import { icon, hydrateIcons } from './icons.js';
 import { skeletons, announce, resolveRegion, renderRegionError } from './ui.js';
@@ -107,11 +109,17 @@ export function initSearch() {
     panel.innerHTML = `<div class="search-panel__group">${skeletons.list(3)}</div>`;
     setOpen(true);
     try {
-      const data = await api.publicGet('/search/suggest/', {
-        params: { q: query, limit: 6 },
-        signal: controller.signal,
-        dedupe: false,
-      });
+      // Products: GET /products/search/ (relevance-ranked). Categories are
+      // matched against the already-loaded category tree.
+      const [found, tree] = await Promise.all([
+        searchProducts({ q: query, page_size: 6 }, { signal: controller.signal }),
+        getCategories().catch(() => []),
+      ]);
+      const needle = query.toLowerCase();
+      const data = {
+        products: found.results,
+        categories: flattenTree(tree).filter((c) => String(c.name).toLowerCase().includes(needle)),
+      };
       if (input.value.trim() !== query) return; // stale response
       render(data, query);
     } catch (error) {
@@ -210,12 +218,13 @@ export function initSearchPage({ renderGrid, onResults }) {
     region.innerHTML = skeletons.productGrid(8);
 
     try {
-      const data = await api.publicGet('/products/', {
-        params: { search: state.q, category: state.category || undefined, page: state.page, ordering: state.sort === 'relevance' ? undefined : state.sort },
-        signal: controller.signal,
-        dedupe: false,
-      });
-      const list = normalizeList(data);
+      const ordering = { newest: '-created_at', price_asc: 'price', price_desc: '-price', rating: '-avg_rating' }[state.sort];
+      const query = { q: state.q, category: state.category || undefined, page: state.page };
+      // "Most relevant" uses the ranked search endpoint; explicit sorts use the
+      // catalogue endpoint with the same keyword filter.
+      const list = ordering
+        ? await listProducts({ ...query, ordering }, { signal: controller.signal })
+        : await searchProducts(query, { signal: controller.signal });
       onResults?.(list, state);
       renderGrid(region, list, state);
       announce(`${list.count} results for ${state.q}`);

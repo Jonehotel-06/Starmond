@@ -4,11 +4,12 @@
  * used to look up private order data.
  */
 import boot from '../boot.js';
-import { getOrder, renderOrderDetail, downloadReceipt, requestRefund } from '../orders.js';
+import { getOrder, renderOrderDetail, cancelOrder, requestRefund } from '../orders.js';
 import { retryPayment, redirectToPaystack } from '../payments.js';
 import { initAuth, isAuthenticated } from '../auth.js';
+import { getOrderAccess } from '../checkout.js';
 import {
-  resolveRegion, renderRegionError, emptyState, toast, openDialog, withSubmit, formData, downloadBlob, skeletons,
+  resolveRegion, renderRegionError, emptyState, toast, openDialog, confirmDialog, withSubmit, formData, skeletons,
 } from '../ui.js';
 import { hydrateIcons } from '../icons.js';
 import { esc, $, readQuery } from '../utils.js';
@@ -18,7 +19,9 @@ await initAuth();
 
 const params = readQuery();
 const reference = params.ref || params.reference || '';
-const token = params.token || '';
+// Guest access tokens live in sessionStorage (set at checkout / order lookup).
+// A ?token= in the URL is still honoured for links opened in a new tab.
+const token = params.token || getOrderAccess(reference) || '';
 
 async function load() {
   const region = $('[data-order-detail]');
@@ -60,18 +63,25 @@ async function load() {
 }
 
 function bindActions(region) {
-  region.querySelector('[data-download-receipt]')?.addEventListener('click', async (event) => {
+  region.querySelector('[data-print-order]')?.addEventListener('click', () => window.print());
+  region.querySelector('[data-cancel-order]')?.addEventListener('click', async (event) => {
     const button = event.currentTarget;
+    const ok = await confirmDialog({
+      title: 'Cancel this order?',
+      message: 'The order has not been paid for. Cancelling releases the reserved items. This cannot be undone.',
+      confirmLabel: 'Cancel order', tone: 'danger',
+    });
+    if (!ok) return;
     button.disabled = true;
     try {
-      const { blob, filename } = await downloadReceipt(button.dataset.downloadReceipt);
-      downloadBlob(blob, filename || `receipt-${button.dataset.downloadReceipt}.pdf`);
-      toast('Receipt downloaded.', { type: 'success' });
+      await cancelOrder(button.dataset.cancelOrder);
+      toast('Order cancelled.', { type: 'success' });
+      load();
     } catch (error) {
-      toast(error?.userMessage || 'The receipt is not available yet.', { type: 'danger' });
-    } finally { button.disabled = false; }
+      toast(error?.userMessage || 'This order could not be cancelled.', { type: 'danger' });
+      button.disabled = false;
+    }
   });
-
   region.querySelector('[data-retry-payment]')?.addEventListener('click', async (event) => {
     const button = event.currentTarget;
     button.disabled = true;

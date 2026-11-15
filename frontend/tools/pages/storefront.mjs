@@ -529,7 +529,7 @@ const loginBody = `
         <p class="field__error" data-error-for="password" id="login-password-error"></p>
       </div>
       <div class="cluster cluster--between">
-        <label class="checkbox"><input type="checkbox" name="remember" value="true"><span>Keep me signed in</span></label>
+        <a class="t-sm" href="/register.html">Create an account</a>
         <a class="t-sm" href="/forgot-password.html">Forgot password?</a>
       </div>
       <button class="btn btn--primary btn--block" type="submit" data-pending-label="Signing in">Sign in</button>
@@ -550,17 +550,10 @@ const registerBody = `
     </div>
     <form class="panel stack" data-register-form novalidate>
       <div class="alert alert--danger" data-form-error hidden role="alert"></div>
-      <div class="form-grid">
-        <div class="field">
-          <label class="field__label" for="reg-first">First name</label>
-          <input class="input" id="reg-first" name="first_name" type="text" required autocomplete="given-name">
-          <p class="field__error" data-error-for="first_name"></p>
-        </div>
-        <div class="field">
-          <label class="field__label" for="reg-last">Last name</label>
-          <input class="input" id="reg-last" name="last_name" type="text" required autocomplete="family-name">
-          <p class="field__error" data-error-for="last_name"></p>
-        </div>
+      <div class="field">
+        <label class="field__label" for="reg-name">Full name</label>
+        <input class="input" id="reg-name" name="full_name" type="text" required autocomplete="name" maxlength="150">
+        <p class="field__error" data-error-for="full_name"></p>
       </div>
       <div class="field">
         <label class="field__label" for="reg-email">Email address</label>
@@ -666,9 +659,8 @@ const accountBody = `
             <form class="stack" data-profile-form novalidate>
               <div class="alert alert--danger" data-form-error hidden role="alert"></div>
               <div class="form-grid">
-                <div class="field"><label class="field__label" for="acc-first">First name</label><input class="input" id="acc-first" name="first_name" autocomplete="given-name"><p class="field__error" data-error-for="first_name"></p></div>
-                <div class="field"><label class="field__label" for="acc-last">Last name</label><input class="input" id="acc-last" name="last_name" autocomplete="family-name"><p class="field__error" data-error-for="last_name"></p></div>
-                <div class="field"><label class="field__label" for="acc-email">Email address</label><input class="input" id="acc-email" name="email" type="email" autocomplete="email"><p class="field__error" data-error-for="email"></p></div>
+                <div class="field form-grid__full"><label class="field__label" for="acc-name">Full name</label><input class="input" id="acc-name" name="full_name" autocomplete="name" maxlength="150" required><p class="field__error" data-error-for="full_name"></p></div>
+                <div class="field"><label class="field__label" for="acc-email">Email address</label><input class="input" id="acc-email" name="email" type="email" autocomplete="email" readonly aria-describedby="acc-email-hint"><p class="field__hint" id="acc-email-hint">Your sign-in email cannot be changed here. Contact support to change it.</p></div>
                 <div class="field"><label class="field__label" for="acc-phone">Phone number</label><input class="input" id="acc-phone" name="phone" type="tel" autocomplete="tel"><p class="field__error" data-error-for="phone"></p></div>
               </div>
               <div><button class="btn btn--primary" type="submit" data-pending-label="Saving">Save changes</button></div>
@@ -705,8 +697,8 @@ const accountBody = `
           <div class="card__body stack stack--lg">
             <form class="stack" data-preferences-form novalidate>
               <h3 class="t-sm t-semibold">Email notifications</h3>
-              <label class="switch"><input type="checkbox" name="order_updates"><span class="switch__track"></span><span>Order and delivery updates</span></label>
-              <label class="switch"><input type="checkbox" name="payment_receipts"><span class="switch__track"></span><span>Payment receipts</span></label>
+              <label class="switch"><input type="checkbox" name="order_update_emails"><span class="switch__track"></span><span>Order and delivery updates by email</span></label>
+              <label class="switch"><input type="checkbox" name="sms_updates"><span class="switch__track"></span><span>Delivery updates by SMS</span></label>
               <label class="switch"><input type="checkbox" name="marketing_emails"><span class="switch__track"></span><span>Product updates and offers</span></label>
               <div><button class="btn btn--secondary" type="submit" data-pending-label="Saving">Save preferences</button></div>
             </form>

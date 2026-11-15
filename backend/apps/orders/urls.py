@@ -1,5 +1,5 @@
 from django.urls import include, path
-from rest_framework.routers import DefaultRouter
+from rest_framework.routers import SimpleRouter
 
 from .views import (
     CustomerOrderDetailView,
@@ -10,7 +10,8 @@ from .views import (
 
 app_name = "orders"
 
-router = DefaultRouter()
+# SimpleRouter: a DefaultRouter API-root at "" would shadow the customer order list.
+router = SimpleRouter()
 router.register("admin", StaffOrderViewSet, basename="order-staff")
 
 urlpatterns = [

@@ -21,6 +21,7 @@
 @media (max-width: 1023px) {
   .only-desktop { display: none !important; }
   .only-mobile { display: revert; }
+  .icon-btn.only-mobile, .btn.only-mobile { display: inline-flex; }
 
   .main-nav { display: none; }
   .header-search { display: none; }

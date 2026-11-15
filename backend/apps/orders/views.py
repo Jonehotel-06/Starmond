@@ -65,6 +65,92 @@ class CheckoutView(APIView):
                         status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
 
+@extend_schema(tags=["checkout"], request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT,
+    description="Authoritative price quote for the current cart or a Buy Now line. Creates nothing and reserves nothing.")
+class CheckoutPreviewView(APIView):
+    """POST /api/checkout/preview/ — server-calculated totals for the checkout
+    summary. Body: {source, cart_token?, promotion_code?, delivery: {state,
+    shipping_method_id}?}. The same pricing runs again when the order is placed."""
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        from apps.cart.serializers import CartItemSerializer
+        from apps.products.models import Product, ProductVariation
+        from services.cart_service import CartService
+        from services.pricing_service import PricingService
+
+        data = request.data if isinstance(request.data, dict) else {}
+        source = data.get("source") or {"type": "cart"}
+        delivery = data.get("delivery") or {}
+        user = request.user if request.user.is_authenticated else None
+        kwargs = {
+            "customer": user,
+            "shipping_method_id": delivery.get("shipping_method_id") or None,
+            "shipping_state": delivery.get("state") or None,
+        }
+        code = str(data.get("promotion_code") or "").strip()
+        items = []
+        if source.get("type") == "buy_now":
+            product = Product.objects.filter(pk=source.get("product_id")).first()
+            if not product or not product.is_public:
+                raise ServiceError("The selected product is not available.", code="product_unavailable", status_code=409)
+            variation = None
+            if source.get("variation_id"):
+                variation = ProductVariation.objects.filter(
+                    pk=source["variation_id"], product=product, is_available=True).first()
+                if not variation:
+                    raise ServiceError("The selected option is not available.", code="invalid_variation", status_code=409)
+            try:
+                quantity = int(source.get("quantity", 1))
+            except (TypeError, ValueError):
+                quantity = 0
+            if quantity < 1:
+                raise ServiceError("Invalid quantity.", code="invalid_quantity")
+            available = CartService.available_stock(product, variation)
+            if quantity > available:
+                raise ServiceError(f"Only {available} unit(s) available.", code="stock_unavailable", status_code=409)
+            price = lambda **kw: PricingService.price_buy_now(product, variation, quantity, **kw)  # noqa: E731
+        else:
+            cart = CartService.get_or_create_cart(request)
+            price = lambda **kw: PricingService.price_cart(cart, **kw)  # noqa: E731
+
+        promotion_error = None
+        try:
+            priced = price(promotion_code=code or None, **kwargs)
+        except ServiceError as exc:
+            # An invalid code must not hide the totals: re-price without it and
+            # report why the code was rejected.
+            if not code or str(getattr(exc, "code", "")).startswith(("shipping", "delivery")):
+                raise
+            promotion_error = str(getattr(exc, "message", "") or exc)
+            priced = price(promotion_code=None, **kwargs)
+
+        for line in priced["lines"]:
+            product, variation = line["product"], line.get("variation")
+            image = (variation.image if variation and variation.image else None) or product.main_image
+            items.append({
+                "id": line.get("cart_item_id"), "product": product.pk, "product_name": product.name,
+                "product_slug": product.slug, "variation": variation.pk if variation else None,
+                "variation_label": variation.display_name if variation else None,
+                "quantity": line["quantity"], "unit_price": str(line["unit_price"]),
+                "line_total": str(line["line_total"]), "image_url": image.file_url if image else None,
+            })
+        promotion, method = priced.get("promotion"), priced.get("shipping_method")
+        return Response({"status": "success", "data": {
+            "items": items, "item_count": priced.get("item_count", 0),
+            "totals": {
+                "subtotal": str(priced["subtotal"]), "discount": str(priced["discount"]),
+                "shipping_fee": str(priced["shipping_fee"]) if method else None,
+                "total": str(priced["total"]), "currency": priced["currency"],
+            },
+            "promotion": ({"code": promotion.code, "name": promotion.name, "discount": str(priced["discount"])}
+                          if promotion else None),
+            "promotion_error": promotion_error,
+            "shipping_method": ({"id": method.pk, "name": method.name, "kind": method.kind,
+                                 "estimated_delivery": method.estimated_delivery} if method else None),
+        }})
+
+
 @extend_schema(tags=["orders"], responses=OpenApiTypes.OBJECT)
 class CustomerOrderListView(APIView):
     permission_classes = [IsAuthenticated]

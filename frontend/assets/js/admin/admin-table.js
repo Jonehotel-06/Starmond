@@ -19,6 +19,7 @@ import {
 } from '../ui.js';
 import { icon, hydrateIcons } from '../icons.js';
 import { esc, $, debounce, formatMoney, formatDate, formatDateTime, formatNumber, titleCase, truncate } from '../utils.js';
+import { mediaKeyControl, bindMediaKeyControls } from './media-field.js';
 import { applyPermissions } from './admin-core.js';
 
 const DEFAULT_PAGE_SIZE = 20;
@@ -34,7 +35,9 @@ export class AdminTable {
     this.state = {
       page: 1,
       search: new URLSearchParams(location.search).get('q') || '',
-      filters: {},
+      filters: Object.fromEntries((config.filters || [])
+        .map((filter) => [filter.key, new URLSearchParams(location.search).get(filter.key)])
+        .filter(([, value]) => value)),
       ordering: config.defaultOrdering || '',
       selected: new Set(),
       rows: [],
@@ -43,6 +46,11 @@ export class AdminTable {
     this.controller = null;
     this.pageSize = config.pageSize || DEFAULT_PAGE_SIZE;
   }
+
+  /** Identifier used in URLs for a row (orders use `reference`, CMS pages use `slug`). */
+  rowId(row) { return row?.[this.config.idKey || 'id']; }
+  findRow(id) { return this.state.rows.find((r) => String(this.rowId(r)) === String(id)); }
+  detailUrl(row) { return `${this.config.endpoint}${encodeURIComponent(this.rowId(row))}/`; }
 
   /* ------------------------------------------------------------- mount -- */
 
@@ -60,7 +68,11 @@ export class AdminTable {
 
   bindToolbar() {
     const search = this.root.querySelector('[data-module-search]');
-    if (search) {
+    if (search && this.config.searchable === false) {
+      // This endpoint has no text search — do not show a box that does nothing.
+      search.closest('.data-panel__search')?.setAttribute('hidden', '');
+      this.state.search = '';
+    } else if (search) {
       search.value = this.state.search;
       search.addEventListener('input', debounce(() => {
         this.state.search = search.value.trim();
@@ -91,7 +103,7 @@ export class AdminTable {
       }
       if (event.target.matches('[data-select-all]')) {
         const checked = event.target.checked;
-        this.state.selected = checked ? new Set(this.state.rows.map((r) => String(r.id))) : new Set();
+        this.state.selected = checked ? new Set(this.state.rows.map((r) => String(this.rowId(r)))) : new Set();
         this.root.querySelectorAll('[data-row-select]').forEach((box) => { box.checked = checked; });
         this.renderBulkBar();
       }
@@ -129,10 +141,14 @@ export class AdminTable {
         const data = await api.get(filter.source, { params: filter.sourceParams || { page_size: 100 } });
         const list = normalizeList(data).results;
         select.insertAdjacentHTML('beforeend', list.map((item) => `<option value="${esc(item[filter.valueKey || 'id'])}">${esc(item[filter.labelKey || 'name'])}</option>`).join(''));
+        if (this.state.filters[filter.key] != null) select.value = this.state.filters[filter.key];
       } catch { /* leave the "all" option only */ }
     });
 
     this.filtersNode.querySelectorAll('[data-filter-key]').forEach((input) => {
+      // Deep links such as /admin/orders.html?status=pending_payment preset a filter.
+      const preset = this.state.filters[input.dataset.filterKey];
+      if (preset != null) input.value = preset;
       input.addEventListener('change', () => {
         const key = input.dataset.filterKey;
         if (input.value) this.state.filters[key] = input.value; else delete this.state.filters[key];
@@ -148,7 +164,7 @@ export class AdminTable {
     return {
       page: this.state.page,
       page_size: this.pageSize,
-      search: this.state.search || undefined,
+      [this.config.searchParam || 'search']: this.state.search || undefined,
       ordering: this.state.ordering || undefined,
       ...this.state.filters,
       ...(this.config.extraParams || {}),
@@ -214,8 +230,8 @@ export class AdminTable {
       <th scope="col" class="num"><span class="sr-only">Actions</span></th>
     </tr></thead>`;
 
-    const body = `<tbody>${this.state.rows.map((row) => `<tr data-row-id="${esc(row.id)}">
-      ${selectable ? `<td data-label="Select"><input type="checkbox" data-row-select="${esc(row.id)}" aria-label="Select row ${esc(row.id)}" ${this.state.selected.has(String(row.id)) ? 'checked' : ''}></td>` : ''}
+    const body = `<tbody>${this.state.rows.map((row) => `<tr data-row-id="${esc(this.rowId(row))}">
+      ${selectable ? `<td data-label="Select"><input type="checkbox" data-row-select="${esc(this.rowId(row))}" aria-label="Select ${esc(this.rowLabel(row))}" ${this.state.selected.has(String(this.rowId(row))) ? 'checked' : ''}></td>` : ''}
       ${columns.map((column) => `<td data-label="${esc(column.label)}" class="${column.numeric ? 'num' : ''}">${this.renderCell(row, column)}</td>`).join('')}
       <td data-label="Actions" class="table__actions">${this.renderRowActions(row)}</td>
     </tr>`).join('')}</tbody>`;
@@ -282,21 +298,21 @@ export class AdminTable {
       actions.push(`<a class="row-action" href="${esc(this.config.viewUrl(row))}" aria-label="View ${esc(this.rowLabel(row))}">${icon('eye', { size: 'sm' })}</a>`);
     }
     if (this.config.form && can(perms.update)) {
-      actions.push(`<button type="button" class="row-action" data-edit="${esc(row.id)}" data-perm="${esc(perms.update || '')}" aria-label="Edit ${esc(this.rowLabel(row))}">${icon('edit', { size: 'sm' })}</button>`);
+      actions.push(`<button type="button" class="row-action" data-edit="${esc(this.rowId(row))}" data-perm="${esc(perms.update || '')}" aria-label="Edit ${esc(this.rowLabel(row))}">${icon('edit', { size: 'sm' })}</button>`);
     }
     (this.config.rowActions || []).forEach((action) => {
       if (action.when && !action.when(row)) return;
       if (action.perm && !can(action.perm)) return;
-      actions.push(`<button type="button" class="row-action ${action.tone === 'danger' ? 'row-action--danger' : ''}" data-row-action="${esc(action.id)}" data-id="${esc(row.id)}" aria-label="${esc(action.label)} ${esc(this.rowLabel(row))}">${icon(action.icon, { size: 'sm' })}</button>`);
+      actions.push(`<button type="button" class="row-action ${action.tone === 'danger' ? 'row-action--danger' : ''}" data-row-action="${esc(action.id)}" data-id="${esc(this.rowId(row))}" aria-label="${esc(action.label)} ${esc(this.rowLabel(row))}">${icon(action.icon, { size: 'sm' })}</button>`);
     });
     if (this.config.deletable && can(perms.delete)) {
-      actions.push(`<button type="button" class="row-action row-action--danger" data-delete="${esc(row.id)}" data-perm="${esc(perms.delete || '')}" aria-label="${this.config.archiveLabel ? 'Archive' : 'Delete'} ${esc(this.rowLabel(row))}">${icon(this.config.archiveLabel ? 'archive' : 'trash', { size: 'sm' })}</button>`);
+      actions.push(`<button type="button" class="row-action row-action--danger" data-delete="${esc(this.rowId(row))}" data-perm="${esc(perms.delete || '')}" aria-label="${this.config.archiveLabel ? 'Archive' : 'Delete'} ${esc(this.rowLabel(row))}">${icon(this.config.archiveLabel ? 'archive' : 'trash', { size: 'sm' })}</button>`);
     }
     return `<span class="row-actions">${actions.join('')}</span>`;
   }
 
   rowLabel(row) {
-    return row[this.config.labelKey || 'name'] || row.reference || row.email || `#${row.id}`;
+    return row?.[this.config.labelKey || 'name'] || row?.reference || row?.email || `#${this.rowId(row)}`;
   }
 
   renderPagination() {
@@ -352,7 +368,7 @@ export class AdminTable {
 
     const editButton = event.target.closest('[data-edit]');
     if (editButton) {
-      const row = this.state.rows.find((r) => String(r.id) === editButton.dataset.edit);
+      const row = this.findRow(editButton.dataset.edit);
       this.openForm(row);
       return;
     }
@@ -365,7 +381,7 @@ export class AdminTable {
     const rowAction = event.target.closest('[data-row-action]');
     if (rowAction) {
       const action = (this.config.rowActions || []).find((a) => a.id === rowAction.dataset.rowAction);
-      const row = this.state.rows.find((r) => String(r.id) === rowAction.dataset.id);
+      const row = this.findRow(rowAction.dataset.id);
       if (action?.handler) await action.handler(row, this);
       return;
     }
@@ -381,62 +397,108 @@ export class AdminTable {
   }
 
   async remove(id) {
-    const row = this.state.rows.find((r) => String(r.id) === String(id));
+    const row = this.findRow(id);
+    if (!row) return;
     const archive = !!this.config.archiveLabel;
     const confirmed = await confirmDialog({
       title: archive ? `Archive ${this.rowLabel(row)}?` : `Delete ${this.rowLabel(row)}?`,
       message: archive
         ? 'Archived records are hidden from the storefront but retained for your records.'
-        : 'This permanently removes the record. This cannot be undone.',
+        : (this.config.deleteMessage || 'This permanently removes the record. This cannot be undone.'),
       confirmLabel: archive ? 'Archive' : 'Delete',
       tone: 'danger',
     });
     if (!confirmed) return;
     try {
-      if (archive) await api.post(`${this.config.endpoint}${encodeURIComponent(id)}/archive/`, {});
-      else await api.delete(`${this.config.endpoint}${encodeURIComponent(id)}/`);
+      let result;
+      if (this.config.remove) result = await this.config.remove(row, this);
+      else if (archive) result = await api.post(`${this.detailUrl(row)}archive/`, {});
+      else result = await api.delete(this.detailUrl(row));
       api.invalidate();
-      toast(archive ? 'Record archived.' : 'Record deleted.', { type: 'success' });
+      // The backend may soften a delete (e.g. archive a product with order history).
+      toast(result?.message || (archive ? 'Record archived.' : 'Record deleted.'), { type: 'success' });
+      this.state.selected.delete(String(id));
       this.load();
     } catch (error) {
       toast(error?.userMessage || 'The action could not be completed.', { type: 'danger' });
     }
   }
 
+  /**
+   * Bulk actions run the action's `run(row, table)` once per selected row.
+   * The backend exposes no bulk endpoints, so each row is a normal audited
+   * request and partial failures are reported honestly.
+   */
   async runBulk(actionId) {
     const action = this.config.bulkActions.find((a) => a.id === actionId);
-    if (!action) return;
-    const ids = [...this.state.selected];
+    if (!action?.run) return;
+    const rows = [...this.state.selected].map((id) => this.findRow(id)).filter(Boolean);
+    if (!rows.length) return;
     const confirmed = await confirmDialog({
-      title: `${action.label} — ${ids.length} record${ids.length === 1 ? '' : 's'}?`,
+      title: `${action.label} — ${rows.length} record${rows.length === 1 ? '' : 's'}?`,
       message: action.confirm || 'This applies the action to every selected record.',
       confirmLabel: action.label,
       tone: action.tone === 'danger' ? 'danger' : 'primary',
     });
     if (!confirmed) return;
-    try {
-      await api.post(`${this.config.endpoint}bulk/`, { ids, action: actionId });
-      api.invalidate();
-      toast(`${ids.length} record${ids.length === 1 ? '' : 's'} updated.`, { type: 'success' });
-      this.state.selected.clear();
-      this.load();
-    } catch (error) {
-      toast(error?.userMessage || 'Bulk action failed.', { type: 'danger' });
+    let done = 0;
+    const failures = [];
+    for (const row of rows) {
+      try { await action.run(row, this); done += 1; }
+      catch (error) { failures.push(`${this.rowLabel(row)}: ${error?.userMessage || 'failed'}`); }
     }
+    api.invalidate();
+    this.state.selected.clear();
+    if (done) toast(`${done} record${done === 1 ? '' : 's'} updated.`, { type: 'success' });
+    if (failures.length) {
+      toast(`${failures.length} could not be updated. ${failures.slice(0, 2).join(' · ')}`, { type: 'danger', duration: 9000 });
+    }
+    this.load();
   }
 
+  /**
+   * CSV export of the CURRENT search/filter result. Rows are read page by page
+   * from the list endpoint (the API caps a page at 100 rows) and the file is
+   * built in the browser — nothing is fabricated or summarised.
+   */
   async export() {
+    const MAX_ROWS = 5000;
     try {
-      toast('Preparing export…', { type: 'info', duration: 2000 });
-      const { blob, filename } = await api.download(`${this.config.endpoint}export/`, { params: this.params() });
-      downloadBlob(blob, filename || `${this.config.id}-export.csv`);
-      toast('Export downloaded.', { type: 'success' });
+      toast('Preparing export…', { type: 'info', duration: 2500 });
+      const rows = [];
+      let page = 1;
+      let total = Infinity;
+      while (rows.length < total && rows.length < MAX_ROWS) {
+        const data = await api.get(this.config.endpoint, { params: { ...this.params(), page, page_size: 100 }, dedupe: false, cache: false });
+        const list = normalizeList(data);
+        total = list.count;
+        if (!list.results.length) break;
+        rows.push(...list.results);
+        page += 1;
+      }
+      if (!rows.length) { toast('There is nothing to export for the current filters.', { type: 'info' }); return; }
+      const columns = this.config.exportColumns
+        || this.config.columns.filter((c) => c.type !== 'custom').map((c) => ({ key: c.key, label: c.label }));
+      const pick = (row, key) => key.split('.').reduce((acc, part) => (acc == null ? acc : acc[part]), row);
+      const cell = (value) => {
+        if (value === null || value === undefined) return '';
+        let text = typeof value === 'object' ? JSON.stringify(value) : String(value);
+        // Neutralise spreadsheet formula injection from user-supplied text.
+        if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+        return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+      };
+      const lines = [columns.map((c) => cell(c.label)).join(',')];
+      rows.forEach((row) => lines.push(columns.map((c) => cell(c.value ? c.value(row) : pick(row, c.key))).join(',')));
+      const blob = new Blob(['\ufeff', lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+      downloadBlob(blob, `${this.config.id}-${new Date().toISOString().slice(0, 10)}.csv`);
+      toast(rows.length < total
+        ? `Exported the first ${formatNumber(rows.length)} of ${formatNumber(total)} rows. Narrow the filters to export the rest.`
+        : `Exported ${formatNumber(rows.length)} row${rows.length === 1 ? '' : 's'}.`, { type: 'success' });
     } catch (error) {
-      toast(error?.userMessage || 'Export is not available.', { type: 'danger' });
+      toast(error?.userMessage || 'The export could not be completed.', { type: 'danger' });
     }
   }
 
-  /* -------------------------------------------------------------- form -- */
 
   openForm(row = null) {
     const config = this.config;
@@ -464,24 +526,24 @@ export class AdminTable {
           if (Object.keys(errors).length) { applyFormErrors(form, errors); return; }
           try {
             await withSubmit(form, button, async () => {
-              const { body, files } = preparePayload(fields, values, form);
-              let result;
-              if (files.length) {
+              const prepared = preparePayload(fields, values, form);
+              const files = prepared.files;
+              let body = prepared.body;
+              if (config.toPayload) body = await config.toPayload(body, { row, isEdit, values, form });
+              // 1) Save the record as JSON (so nested/JSON fields keep their types).
+              const saved = isEdit
+                ? await api.patch(this.detailUrl(row), body)
+                : await api.post(config.createEndpoint || config.endpoint, body);
+              const target = saved && typeof saved === 'object' ? { ...(row || {}), ...saved } : row;
+              // 2) Then send files. Modules with dedicated upload routes handle
+              //    them in `afterSave`; otherwise they go to the record itself.
+              if (config.afterSave) await config.afterSave(target, { files, values, form, isEdit, table: this });
+              else if (files.length && target) {
                 const fd = new FormData();
-                Object.entries(body).forEach(([key, value]) => {
-                  if (value === null || value === undefined) return;
-                  fd.append(key, typeof value === 'object' ? JSON.stringify(value) : String(value));
-                });
                 files.forEach(({ name, file }) => fd.append(name, file));
-                result = isEdit
-                  ? api.upload(`${config.endpoint}${encodeURIComponent(row.id)}/`, fd, { method: 'PATCH' })
-                  : api.upload(config.endpoint, fd);
-              } else {
-                result = isEdit
-                  ? api.patch(`${config.endpoint}${encodeURIComponent(row.id)}/`, body)
-                  : api.post(config.endpoint, body);
+                await api.upload(this.detailUrl(target), fd, { method: 'PATCH' });
               }
-              return result;
+              return saved;
             });
             api.invalidate();
             close();
@@ -497,6 +559,17 @@ export class AdminTable {
 /* ============================================================================
    Field rendering
    ========================================================================== */
+
+const INVALID_JSON = Symbol('invalid-json');
+
+/** ISO timestamp → value for <input type="datetime-local"> in the user's timezone. */
+function toLocalInput(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 function renderFields(fields, row) {
   const sections = new Map();
@@ -522,7 +595,7 @@ function renderField(field, row) {
   const value = currentValue(field, row);
   const id = `f-${field.key.replace(/\./g, '-')}`;
   const required = field.required ? '<span class="field__req" aria-hidden="true">*</span>' : '';
-  const full = field.full || ['textarea', 'richtext', 'images', 'repeater', 'permissions'].includes(field.type);
+  const full = field.full || ['textarea', 'richtext', 'images', 'json', 'keyvalue', 'mediakey'].includes(field.type);
   const wrap = (control) => `<div class="field ${full ? 'form-grid__full' : ''}">
     <label class="field__label" for="${id}">${esc(field.label)} ${required}</label>
     ${control}
@@ -540,7 +613,7 @@ function renderField(field, row) {
     case 'money':
       return wrap(`<input class="input" id="${id}" name="${esc(field.key)}" type="number" min="0" step="0.01" value="${esc(value)}" ${field.required ? 'required' : ''} inputmode="decimal">`);
     case 'select':
-      return wrap(`<select class="select" id="${id}" name="${esc(field.key)}" ${field.required ? 'required' : ''} ${field.source ? `data-source="${esc(field.source)}" data-value-key="${esc(field.valueKey || 'id')}" data-label-key="${esc(field.labelKey || 'name')}"` : ''}>
+      return wrap(`<select class="select" id="${id}" name="${esc(field.key)}" ${field.required ? 'required' : ''} ${field.source ? `data-selected="${esc((value && typeof value === 'object' ? value.id : value) ?? '')}" data-source="${esc(field.source)}" data-value-key="${esc(field.valueKey || 'id')}" data-label-key="${esc(field.labelKey || 'name')}"` : ''}>
         <option value="">${esc(field.placeholder || 'Select…')}</option>
         ${(field.options || []).map((option) => {
           const val = typeof option === 'object' ? option.value : option;
@@ -557,7 +630,7 @@ function renderField(field, row) {
     case 'date':
       return wrap(`<input class="input" id="${id}" name="${esc(field.key)}" type="date" value="${esc(String(value).slice(0, 10))}" ${field.required ? 'required' : ''}>`);
     case 'datetime':
-      return wrap(`<input class="input" id="${id}" name="${esc(field.key)}" type="datetime-local" value="${esc(String(value).slice(0, 16))}" ${field.required ? 'required' : ''}>`);
+      return wrap(`<input class="input" id="${id}" name="${esc(field.key)}" type="datetime-local" value="${esc(toLocalInput(value))}" ${field.required ? 'required' : ''}>`);
     case 'image':
       return wrap(`<div class="stack stack--sm">
         ${value ? `<img src="${esc(value)}" alt="" width="120" height="120" style="border-radius:var(--radius-md);border:1px solid var(--color-border);object-fit:cover">` : ''}
@@ -567,6 +640,27 @@ function renderField(field, row) {
     case 'images':
       return wrap(`<input class="input" id="${id}" name="${esc(field.key)}" type="file" accept="image/*" multiple data-file>
         <div class="image-picker" style="margin-top:.5rem">${(row?.images || []).map((image) => `<span class="image-picker__item"><img src="${esc(image.url || image)}" alt="${esc(image.alt || '')}" loading="lazy"></span>`).join('')}</div>`);
+    case 'json':
+      return wrap(`<textarea class="textarea t-mono" id="${id}" name="${esc(field.key)}" rows="${field.rows || 5}" spellcheck="false" placeholder="${esc(field.placeholder || '{ }')}">${esc(value === '' || value == null ? '' : JSON.stringify(value, null, 2))}</textarea>`);
+    case 'keyvalue': {
+      // {label: value} objects edited as one "Label: value" pair per line.
+      const text = value && typeof value === 'object' ? Object.entries(value).map(([k, v]) => `${k}: ${v}`).join('\n') : '';
+      return wrap(`<textarea class="textarea" id="${id}" name="${esc(field.key)}" rows="${field.rows || 5}" placeholder="${esc(field.placeholder || 'Label: value')}">${esc(text)}</textarea>`);
+    }
+    case 'checklist': {
+      const selected = new Set((Array.isArray(value) ? value : []).map(String));
+      const options = (field.options || []).map((option) => (typeof option === 'object' ? option : { value: option, label: option }));
+      return `<fieldset class="field form-grid__full" data-checklist="${esc(field.key)}" ${field.source ? `data-checklist-source="${esc(field.source)}"` : ''} data-selected="${esc(JSON.stringify([...selected]))}">
+        <legend class="field__label">${esc(field.label)} ${required}</legend>
+        <div class="checklist">${options.map((option) => `<label class="checkbox"><input type="checkbox" value="${esc(option.value)}" ${selected.has(String(option.value)) ? 'checked' : ''}><span>${esc(option.label)}</span></label>`).join('')}</div>
+        ${field.hint ? `<p class="field__hint">${esc(field.hint)}</p>` : ''}
+        <p class="field__error" data-error-for="${esc(field.key)}"></p>
+      </fieldset>`;
+    }
+    case 'mediakey':
+      return wrap(mediaKeyControl({ id, name: field.key, value: value || '', previewUrl: row?.[field.previewKey] || '', kind: field.kind }));
+    case 'idlist':
+      return wrap(`<input class="input" id="${id}" name="${esc(field.key)}" type="text" inputmode="numeric" value="${esc(Array.isArray(value) ? value.join(', ') : '')}" placeholder="e.g. 12, 15, 31">`);
     case 'tags':
       return wrap(`<input class="input" id="${id}" name="${esc(field.key)}" type="text" value="${esc(Array.isArray(value) ? value.join(', ') : value)}" placeholder="Comma-separated">`);
     case 'readonly':
@@ -579,8 +673,32 @@ function renderField(field, row) {
 }
 
 function bindFieldBehaviours(form, fields) {
+  bindMediaKeyControls(form);
   fields.forEach(async (field) => {
     if (!field.source) return;
+    if (field.type === 'checklist') {
+      const box = form.querySelector(`[data-checklist="${CSS.escape(field.key)}"]`);
+      const holder = box?.querySelector('.checklist');
+      if (!holder) return;
+      try {
+        const list = normalizeList(await api.get(field.source, { params: field.sourceParams || { page_size: 100 } })).results;
+        const selected = new Set(JSON.parse(box.dataset.selected || '[]').map(String));
+        const valueKey = field.valueKey || 'id';
+        const labelKey = field.labelKey || 'name';
+        const groups = new Map();
+        list.forEach((item) => {
+          const group = field.groupKey ? (item[field.groupKey] || 'Other') : '';
+          if (!groups.has(group)) groups.set(group, []);
+          groups.get(group).push(item);
+        });
+        holder.innerHTML = [...groups.entries()].map(([group, items]) => `
+          ${group ? `<p class="checklist__group">${esc(titleCase(group))}</p>` : ''}
+          ${items.map((item) => `<label class="checkbox"><input type="checkbox" value="${esc(item[valueKey])}" ${selected.has(String(item[valueKey])) ? 'checked' : ''}><span>${esc(item[labelKey])}</span></label>`).join('')}`).join('');
+      } catch {
+        holder.innerHTML = '<p class="field__hint">Options could not be loaded.</p>';
+      }
+      return;
+    }
     const select = form.querySelector(`[name="${CSS.escape(field.key)}"]`);
     if (!select || select.tagName !== 'SELECT') return;
     try {
@@ -588,7 +706,7 @@ function bindFieldBehaviours(form, fields) {
       const list = normalizeList(data).results;
       const valueKey = field.valueKey || 'id';
       const labelKey = field.labelKey || 'name';
-      const existing = select.value;
+      const existing = select.dataset.selected || select.value;
       select.insertAdjacentHTML('beforeend', list.map((item) => `<option value="${esc(item[valueKey])}" ${String(existing) === String(item[valueKey]) ? 'selected' : ''}>${esc(item[labelKey])}</option>`).join(''));
     } catch {
       select.insertAdjacentHTML('beforeend', '<option value="" disabled>Options unavailable</option>');
@@ -601,7 +719,36 @@ function collectValues(form, fields) {
   fields.forEach((field) => {
     if (field.type === 'checkbox' || field.type === 'switch') values[field.key] = !!form.elements[field.key]?.checked;
     if (field.type === 'tags') values[field.key] = String(values[field.key] || '').split(',').map((s) => s.trim()).filter(Boolean);
-    if (['number', 'money'].includes(field.type)) values[field.key] = values[field.key] === '' ? null : Number(values[field.key]);
+    if (field.type === 'number') {
+      const empty = values[field.key] === '' || values[field.key] == null;
+      // Columns that cannot be NULL declare `emptyValue` (their server default).
+      values[field.key] = empty ? (field.emptyValue ?? (typeof field.default === 'number' ? field.default : null)) : Number(values[field.key]);
+    }
+    // Money stays a decimal string so no precision is lost in transit.
+    if (field.type === 'money') values[field.key] = values[field.key] === '' || values[field.key] == null ? null : String(values[field.key]).trim();
+    if (field.type === 'datetime') values[field.key] = values[field.key] ? new Date(values[field.key]).toISOString() : null;
+    if (field.type === 'date' && !values[field.key]) values[field.key] = null;
+    if (field.type === 'select' && field.nullable && values[field.key] === '') values[field.key] = null;
+    if (field.type === 'idlist') {
+      values[field.key] = String(values[field.key] || '').split(/[\s,]+/).filter(Boolean).map((part) => (/^\d+$/.test(part) ? Number(part) : NaN));
+    }
+    if (field.type === 'checklist') {
+      values[field.key] = [...form.querySelectorAll(`[data-checklist="${CSS.escape(field.key)}"] input:checked`)]
+        .map((input) => (field.numeric ? Number(input.value) : input.value));
+    }
+    if (field.type === 'keyvalue') {
+      values[field.key] = Object.fromEntries(String(values[field.key] || '').split('\n')
+        .map((line) => line.split(/:(.*)/s).slice(0, 2).map((part) => (part || '').trim()))
+        .filter(([key, val]) => key && val));
+    }
+    if (field.type === 'json') {
+      const raw = String(values[field.key] || '').trim();
+      if (!raw) values[field.key] = field.emptyValue ?? null;
+      else {
+        try { values[field.key] = JSON.parse(raw); }
+        catch { values[field.key] = INVALID_JSON; }
+      }
+    }
   });
   return values;
 }
@@ -609,6 +756,12 @@ function collectValues(form, fields) {
 function validateFields(fields, values) {
   const errors = {};
   fields.forEach((field) => {
+    if (values[field.key] === INVALID_JSON) { errors[field.key] = `${field.label} must be valid JSON.`; return; }
+    if (field.type === 'idlist' && values[field.key].some(Number.isNaN)) { errors[field.key] = `${field.label}: use whole numbers separated by commas.`; return; }
+    if (field.validate) {
+      const message = field.validate(values[field.key], values);
+      if (message) { errors[field.key] = message; return; }
+    }
     if (!field.required) return;
     const value = values[field.key];
     if (value === '' || value === null || value === undefined || (Array.isArray(value) && !value.length)) {

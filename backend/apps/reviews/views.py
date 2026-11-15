@@ -53,6 +53,43 @@ class CustomerReviewCreateView(viewsets.ViewSet):
                          "data": ReviewPublicSerializer(review).data}, status=status.HTTP_201_CREATED)
 
 
+class RecentReviewsView(viewsets.ViewSet):
+    """GET /api/reviews/recent/?limit=3 — latest approved 4–5★ reviews across
+    the catalogue (homepage testimonials). Approved reviews only."""
+    permission_classes = [AllowAny]
+
+    def list(self, request):
+        try:
+            limit = max(1, min(int(request.query_params.get("limit", 3)), 12))
+        except (TypeError, ValueError):
+            limit = 3
+        reviews = (Review.objects.approved().filter(rating__gte=4, product__status="active")
+                   .select_related("product", "customer").order_by("-created_at")[:limit])
+        data = []
+        for review in reviews:
+            row = dict(ReviewPublicSerializer(review).data)
+            row["product_name"] = review.product.name
+            row["product_slug"] = review.product.slug
+            data.append(row)
+        return Response({"status": "success", "data": data})
+
+
+class CustomerReviewListView(viewsets.ViewSet):
+    """GET /api/reviews/mine/ — the signed-in customer's own reviews, with
+    their moderation status."""
+    permission_classes = [IsAuthenticated]
+
+    def list(self, request):
+        reviews = Review.objects.filter(customer=request.user).select_related("product").order_by("-created_at")
+        data = [{
+            "id": r.pk, "product": r.product_id, "product_name": r.product.name,
+            "product_slug": r.product.slug, "rating": r.rating, "title": r.title, "body": r.body,
+            "moderation_status": r.moderation_status, "is_verified_purchase": r.is_verified_purchase,
+            "created_at": r.created_at,
+        } for r in reviews[:200]]
+        return Response({"status": "success", "data": data})
+
+
 class StaffReviewFilter(filters.FilterSet):
     class Meta:
         model = Review

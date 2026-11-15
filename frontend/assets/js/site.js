@@ -17,7 +17,7 @@ import { createStorage, esc, isSafeUrl } from './utils.js';
 export const BUSINESS_NAME = 'STARMOND TECHNOLOGY LIMITED';
 
 const cacheStore = createStorage('session');
-const SETTINGS_KEY = 'site_settings';
+const SETTINGS_KEY = 'site_settings_v2';
 const SETTINGS_TTL_MS = 5 * 60 * 1000;
 
 let settingsPromise = null;
@@ -32,6 +32,71 @@ const EMPTY_SETTINGS = Object.freeze({
   policies: {},
   loaded: false,
 });
+
+/** CMS page slug (backend `Page.slug`) → key used by the static pages. */
+export const PAGE_KEYS = Object.freeze({
+  'about-us': 'about',
+  'contact-us': 'contact',
+  'privacy-policy': 'privacy',
+  'terms-conditions': 'terms',
+  'shipping-policy': 'shipping',
+  'returns-refund-policy': 'returns',
+  faq: 'faq',
+});
+
+const SOCIAL_ICONS = { facebook: 'facebook', instagram: 'instagram', x: 'twitter', twitter: 'twitter', whatsapp: 'message', tiktok: 'globe', youtube: 'globe', linkedin: 'globe' };
+
+/** Backend BusinessSettings + published pages → the shape the shell renders. */
+function mapSettings(raw, pages) {
+  const social = Object.entries(raw.social_links || {})
+    .filter(([, url]) => typeof url === 'string' && url.trim())
+    .map(([name, url]) => ({
+      name: name.charAt(0).toUpperCase() + name.slice(1),
+      // A bare WhatsApp number becomes a wa.me link.
+      url: name === 'whatsapp' && /^\+?[\d\s-]{7,}$/.test(url) ? `https://wa.me/${url.replace(/[^\d]/g, '')}` : url,
+      icon: SOCIAL_ICONS[name] || 'globe',
+    }));
+  const hero = raw.homepage_hero || {};
+  const policies = {};
+  pages.forEach((page) => {
+    const key = PAGE_KEYS[page.slug] || page.slug;
+    policies[key] = {
+      title: page.title, slug: page.slug, body_html: page.body || '', excerpt: page.excerpt || '',
+      updated_at: page.updated_at, seo: page.seo || null,
+    };
+  });
+  return {
+    business: {
+      name: raw.business_name || BUSINESS_NAME,
+      description: raw.business_description || '',
+      email: raw.contact_email || '',
+      phone: raw.contact_phone || '',
+      address: raw.business_address || '',
+      support_hours: raw.support_hours || '',
+      logo_url: raw.logo_url || '',
+      favicon_url: raw.favicon_url || '',
+    },
+    currency: raw.currency || 'NGN',
+    footer_text: raw.footer_text || '',
+    social,
+    homepage: {
+      hero: (hero.title || hero.subtitle || hero.image_url) ? {
+        title: hero.title || '', subtitle: hero.subtitle || '', image_url: hero.image_url || '',
+        primary_cta: hero.cta_url ? { label: hero.cta_label || 'Shop now', url: hero.cta_url === '/shop/' ? '/shop.html' : hero.cta_url } : null,
+      } : null,
+    },
+    policies,
+  };
+}
+
+let homepagePromise = null;
+/** GET /cms/homepage/ — banners, sections and the curated product rows. */
+export function getHomepage() {
+  if (!homepagePromise) {
+    homepagePromise = api.publicGet('/cms/homepage/').catch((error) => { homepagePromise = null; throw error; });
+  }
+  return homepagePromise;
+}
 
 /**
  * Public website settings. Cached for the session; a failure resolves to a
@@ -49,10 +114,15 @@ export async function getSettings({ force = false } = {}) {
     }
   }
 
-  settingsPromise = api.publicGet('/settings/public/')
-    .then((data) => {
-      settingsValue = { ...EMPTY_SETTINGS, ...(data || {}), loaded: true };
-      cacheStore.set(SETTINGS_KEY, { _ts: Date.now(), data: data || {} });
+  // GET /cms/settings/ (business identity) + GET /cms/pages/ (published pages).
+  settingsPromise = Promise.all([
+    api.publicGet('/cms/settings/'),
+    api.publicGet('/cms/pages/').catch(() => []),
+  ])
+    .then(([raw, pages]) => {
+      const data = mapSettings(raw || {}, Array.isArray(pages) ? pages : []);
+      settingsValue = { ...EMPTY_SETTINGS, ...data, loaded: true };
+      cacheStore.set(SETTINGS_KEY, { _ts: Date.now(), data });
       return settingsValue;
     })
     .catch(() => {

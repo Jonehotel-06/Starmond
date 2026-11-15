@@ -16,6 +16,8 @@ let treeValue = null;
 /** Canonical SEO path for a category: /shop/<parent>/<child>/ */
 export function categoryUrl(category) {
   if (!category) return '/shop.html';
+  // Backend categories carry their canonical storefront path (`url_path`).
+  if (category.url_path) return category.url_path;
   if (category.url) return category.url;
   if (category.path) return `/shop/${String(category.path).replace(/^\/+|\/+$/g, '')}/`;
   const segments = [];
@@ -55,7 +57,7 @@ export async function getCategories({ force = false } = {}) {
   if (treeValue && !force) return treeValue;
   if (treePromise && !force) return treePromise;
 
-  treePromise = api.publicGet('/categories/', { params: { tree: 1, active: 1 } })
+  treePromise = api.publicGet('/categories/')
     .then((data) => {
       const list = normalizeList(data).results;
       treeValue = assembleTree(list);
@@ -79,7 +81,7 @@ export function assembleTree(list) {
     else roots.push(node);
   });
   const sortRec = (nodes) => {
-    nodes.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || String(a.name).localeCompare(String(b.name)));
+    nodes.sort((a, b) => (a.display_order ?? a.order ?? 0) - (b.display_order ?? b.order ?? 0) || String(a.name).localeCompare(String(b.name)));
     nodes.forEach((n) => sortRec(n.children));
   };
   sortRec(roots);

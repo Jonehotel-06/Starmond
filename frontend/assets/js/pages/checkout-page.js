@@ -8,10 +8,10 @@
 
 import boot from '../boot.js';
 import { isAuthenticated, getUser } from '../auth.js';
-import { getCart, getBuyNowIntent, clearBuyNowIntent, applyCoupon, removeCoupon } from '../cart.js';
+import { getCart, clearBuyNowIntent, applyCoupon, removeCoupon, getCouponCode, resetCartCache } from '../cart.js';
 import {
   currentMode, checkoutLines, previewCheckout, createOrder, getDeliveryOptions,
-  getDeliverableStates, buildOrderPayload, validateCheckoutForm,
+  getDeliverableStates, buildOrderPayload, validateCheckoutForm, saveAddress, clearCheckoutIdempotency,
 } from '../checkout.js';
 import { redirectToPaystack } from '../payments.js';
 import { productImage, PRODUCT_URL, variationLabel } from '../products.js';
@@ -30,7 +30,7 @@ const state = {
   preview: null,
   deliveryMethod: null,
   deliveryOptions: [],
-  couponCode: null,
+  couponCode: mode === 'cart' ? (getCouponCode() || null) : null,
   lines: mode === 'buy_now' ? checkoutLines('buy_now') : null,
   submitting: false,
 };
@@ -74,13 +74,17 @@ function guardBuyNow() {
 function previewPayload() {
   const form = $('[data-checkout-form]');
   const values = form ? formData(form) : {};
-  const payload = { mode };
-  if (mode === 'buy_now') payload.items = state.lines;
-  if (values.state) payload.state = values.state;
-  if (values.city) payload.city = values.city;
-  if (state.deliveryMethod) payload.delivery_method = state.deliveryMethod;
-  if (state.couponCode) payload.coupon_code = state.couponCode;
-  return payload;
+  return {
+    mode,
+    lines: state.lines,
+    state: values.state || '',
+    deliveryMethod: state.deliveryMethod,
+    couponCode: state.couponCode || '',
+  };
+}
+
+function selectedOption() {
+  return state.deliveryOptions.find((o) => String(o.code) === String(state.deliveryMethod)) || null;
 }
 
 async function loadPreview({ silent = false } = {}) {
@@ -96,6 +100,7 @@ async function loadPreview({ silent = false } = {}) {
     const preview = await previewCheckout(previewPayload());
     state.preview = preview;
     if (preview.coupon?.code) state.couponCode = preview.coupon.code;
+    else if (preview.couponError) { state.couponError = preview.couponError; state.couponCode = null; }
     renderItems();
     renderTotals();
     renderCoupon();
@@ -238,7 +243,12 @@ function renderCoupon() {
       state.couponCode = code;
       await loadPreview();
       if (state.preview?.coupon?.code) toast('Discount applied.', { type: 'success' });
-      else { errorNode.textContent = 'That code is not eligible for this order.'; state.couponCode = null; }
+      else {
+        const message = state.couponError || 'That code is not eligible for this order.';
+        state.couponCode = null; state.couponError = null;
+        const node = $('[data-coupon-error]');
+        if (node) node.textContent = message;
+      }
     } catch (error) {
       errorNode.textContent = error?.fieldErrors?.code?.[0] || error?.userMessage || 'That code could not be applied.';
       state.couponCode = null;
@@ -262,6 +272,13 @@ function renderCoupon() {
 async function initStates() {
   const select = $('[data-checkout-form] [name="state"]');
   const states = await getDeliverableStates();
+  if (!states.length) {
+    resolveRegion($('[data-delivery-options]'), `<div class="alert alert--warning">
+      <span class="alert__icon">${icon('alert-triangle')}</span>
+      <div class="alert__body"><span class="alert__title">Delivery is not configured yet</span>
+      <span>The store has not published any delivery areas. Please contact us to place this order.</span></div></div>`);
+    $('[data-checkout-submit]').disabled = true;
+  }
   select.insertAdjacentHTML('beforeend', states.map((name) => `<option value="${esc(name)}">${esc(name)}</option>`).join(''));
 }
 
@@ -277,7 +294,7 @@ async function loadDeliveryOptions() {
   region.innerHTML = `<div class="stack" aria-hidden="true"><span class="sk sk--input"></span><span class="sk sk--input"></span></div>`;
   try {
     const options = await getDeliveryOptions({
-      state: values.state, city: values.city, mode, items: state.lines,
+      state: values.state, subtotal: state.preview?.totals?.subtotal ?? null,
     });
     state.deliveryOptions = options;
     if (!options.length) {
@@ -305,14 +322,20 @@ async function loadDeliveryOptions() {
         const option = options.find((o) => String(o.code) === String(input.value));
         togglePickupFields(option?.is_pickup);
         loadPreview({ silent: true });
-        announce(`${input.value} selected`);
+        announce(`${option?.name || 'Delivery method'} selected`);
       });
     });
 
     // Restore a previously chosen method if it is still offered.
     const previous = region.querySelector(`input[value="${CSS.escape(state.deliveryMethod || '')}"]`);
     if (previous && !previous.disabled) { previous.checked = true; }
-    else state.deliveryMethod = null;
+    else {
+      state.deliveryMethod = null;
+      // One method only: select it so the shopper sees the full total at once.
+      const inputs = region.querySelectorAll('input[name="delivery_method"]:not([disabled])');
+      if (inputs.length === 1) { inputs[0].checked = true; inputs[0].dispatchEvent(new Event('change')); }
+    }
+    togglePickupFields(selectedOption()?.is_pickup);
   } catch (error) {
     resolveRegion(region, `<div class="alert alert--danger">
       <span class="alert__icon">${icon('alert-triangle')}</span>
@@ -364,14 +387,20 @@ async function prefill() {
     setIfEmpty('phone', user.phone);
     $('[data-save-address-row]').hidden = false;
     try {
-      const data = await import('../api.js').then((m) => m.default.privateGet('/account/addresses/'));
+      const data = await import('../api.js').then((m) => m.default.privateGet('/customers/addresses/'));
       const addresses = Array.isArray(data) ? data : data?.results || [];
       const defaultAddress = addresses.find((a) => a.is_default) || addresses[0];
       if (defaultAddress) {
-        setIfEmpty('state', defaultAddress.state);
+        setIfEmpty('full_name', defaultAddress.full_name);
+        setIfEmpty('phone', defaultAddress.phone);
+        const stateSelect = form.elements.state;
+        if (stateSelect && !stateSelect.value && [...stateSelect.options].some((o) => o.value === defaultAddress.state)) {
+          stateSelect.value = defaultAddress.state;
+        }
         setIfEmpty('city', defaultAddress.city);
-        setIfEmpty('address_line1', defaultAddress.address_line1);
-        setIfEmpty('address_line2', defaultAddress.address_line2);
+        setIfEmpty('address_line1', defaultAddress.street);
+        setIfEmpty('address_line2', defaultAddress.details);
+        setIfEmpty('delivery_instructions', defaultAddress.instructions);
       }
     } catch { /* addresses are optional */ }
   }
@@ -397,7 +426,9 @@ async function handleSubmit(event) {
   const values = formData(form);
   values.phone = normalizePhone(values.phone);
 
-  const errors = validateCheckoutForm(values, { deliveryMethod: state.deliveryMethod });
+  const option = selectedOption();
+  const pickup = option?.is_pickup ? option : null;
+  const errors = validateCheckoutForm(values, { deliveryMethod: state.deliveryMethod, pickup: !!pickup });
   if (Object.keys(errors).length) { applyFormErrors(form, errors); return; }
 
   state.submitting = true;
@@ -407,14 +438,32 @@ async function handleSubmit(event) {
       saveDraft();
       const payload = buildOrderPayload({
         mode, form: values, deliveryMethod: state.deliveryMethod,
-        couponCode: state.couponCode, lines: state.lines,
+        couponCode: state.couponCode, lines: state.lines, pickup,
       });
-      const result = await createOrder(payload);
+      let result;
+      try {
+        result = await createOrder(payload);
+      } catch (error) {
+        // Backend field keys ("delivery.street", "contact.email") → form field names.
+        if (error?.fieldErrors) {
+          const alias = { street: 'address_line1', details: 'address_line2', instructions: 'delivery_instructions', shipping_method_id: 'delivery_method' };
+          error.fieldErrors = Object.fromEntries(Object.entries(error.fieldErrors).map(([key, value]) => {
+            const name = String(key).split('.').pop();
+            return [alias[name] || name, value];
+          }));
+        }
+        throw error;
+      }
+      if (values.save_address && isAuthenticated() && !pickup) {
+        try { await saveAddress(values); } catch { /* saving the address is optional */ }
+      }
       if (!result.authorizationUrl) {
         throw new Error('The store created the order but did not return a payment link. Please contact support with your reference.');
       }
       // Only clear the direct-purchase intent, never the cart.
       if (mode === 'buy_now') clearBuyNowIntent();
+      else resetCartCache(); // the backend empties the cart once the order exists
+      clearCheckoutIdempotency();
       announce('Order created. Redirecting to Paystack for secure payment.');
       toast('Redirecting to Paystack…', { type: 'info', duration: 3000 });
       redirectToPaystack(result.authorizationUrl);
@@ -437,7 +486,7 @@ async function init() {
   if (!guardBuyNow()) return;
 
   const form = $('[data-checkout-form]');
-  await initStates();
+  try { await initStates(); } catch { /* the delivery section reports the failure */ }
   await prefill();
 
   // In cart mode, confirm there is something to buy before pricing.

@@ -75,10 +75,15 @@ class _BaseProductFields(serializers.ModelSerializer):
     url_path = serializers.CharField(read_only=True)
     in_stock = serializers.SerializerMethodField()
     rating_summary = serializers.SerializerMethodField()
+    has_variations = serializers.SerializerMethodField()
+
+    def get_has_variations(self, obj):
+        annotated = getattr(obj, "annotated_has_variations", None)
+        return obj.variations.exists() if annotated is None else bool(annotated)
 
     class Meta:
         model = Product
-        fields = ["id", "name", "slug", "sku", "category", "category_slug", "category_name",
+        fields = ["id", "name", "slug", "sku", "category", "category_slug", "category_name", "has_variations",
                   "short_description", "regular_price", "sale_price", "effective_price", "on_sale",
                   "currency", "main_image_url", "url_path", "is_featured", "is_new_arrival",
                   "is_best_seller", "brand", "in_stock", "rating_summary"]

@@ -60,7 +60,7 @@ class PaymentService:
                 email=order.contact_email,
                 amount_kobo=naira_to_kobo(order.total_amount),
                 reference=payment.provider_reference,
-                callback_url=f"{settings.FRONTEND_BASE_URL.rstrip('/')}/payment/callback",
+                callback_url=f"{settings.PAYSTACK_CALLBACK_URL}?order={order.reference}",
                 metadata={"order_reference": order.reference, "payment_reference": payment.reference},
             )
         except PaystackError:
@@ -87,9 +87,10 @@ class PaymentService:
         try:
             data = PaystackService.verify(payment.provider_reference)
         except PaystackError:
-            payment.status = Payment.Status.FAILED
-            payment.failure_reason = "Verification call failed"
-            payment.save(update_fields=["status", "failure_reason", "updated_at"])
+            # A provider outage is NOT a failed payment: the customer may have
+            # been charged. Leave the payment pending so a later verify call or
+            # the webhook can finalize it.
+            logger.warning("Paystack verify unavailable for %s; payment left pending.", payment.provider_reference)
             raise
         return cls._apply_provider_result(payment, data)
 

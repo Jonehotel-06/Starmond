@@ -22,7 +22,7 @@ class StaffCustomerListView(APIView):
 
     def get(self, request):
         qs = CustomerProfile.objects.select_related("user").all()
-        search = request.query_params.get("search")
+        search = (request.query_params.get("search") or request.query_params.get("q") or "").strip()
         if search:
             from django.db.models import Q
             qs = qs.filter(Q(user__email__icontains=search) | Q(user__full_name__icontains=search) | Q(user__phone__icontains=search))
@@ -49,6 +49,9 @@ class StaffCustomerListView(APIView):
 
 def Q_paid():
     from django.db.models import Q
-    return Q(orders__payment_status=Order.PaymentStatus.PAID) | Q(orders__payment_status__in=[
-        Order.PaymentStatus.PARTIALLY_REFUNDED, Order.PaymentStatus.REFUNDED
+    # The queryset is rooted at CustomerProfile, so orders are reached through `user`.
+    return Q(user__orders__payment_status__in=[
+        Order.PaymentStatus.PAID,
+        Order.PaymentStatus.PARTIALLY_REFUNDED,
+        Order.PaymentStatus.REFUNDED,
     ])

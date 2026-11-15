@@ -28,13 +28,15 @@ class ServiceError(APIException):
 
     def __init__(self, message=None, code=None, status_code=None, fields=None):
         self.fields = fields
-        if message:
-            self.detail = message
         if code:
             self.default_code = code
         if status_code:
             self.status_code = status_code
-        super().__init__()
+        # Pass the message to APIException: calling super().__init__() with no
+        # arguments replaced every specific message with default_detail.
+        super().__init__(detail=message or None, code=code or None)
+        self.message = str(self.detail)
+        self.code = self.default_code
 
 
 class StockUnavailableError(ServiceError):

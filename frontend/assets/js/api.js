@@ -20,7 +20,7 @@
  * no discount maths, no payment verification.
  */
 
-import { buildQuery, randomToken, createStorage, sleep } from './utils.js';
+import { buildQuery, createStorage, sleep } from './utils.js';
 
 const CONFIG = (typeof window !== 'undefined' && window.STARMOND_CONFIG) || {};
 const storage = createStorage('local');
@@ -29,7 +29,7 @@ const IDEMPOTENT = new Set(['GET', 'HEAD', 'OPTIONS']);
 const UNSAFE = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 /** Paths whose responses must never be cached or deduplicated across mounts. */
-const PRIVATE_PATH = /\/(auth|account|cart|checkout|orders|payments|wishlist|refunds|admin|notifications|me)\b/i;
+const PRIVATE_PATH = /\/(auth|account|customers|cart|checkout|orders|payments|wishlist|refunds|admin|admin-panel|notifications|me|mine|inventory|dashboard|reports|audit|emails|media|promotions|seo\/(settings|products|categories)|shipping\/(zones|methods))\b/i;
 
 /* ============================================================================
    Error model
@@ -55,8 +55,12 @@ export class ApiError extends Error {
   get isTimeout() { return this.kind === 'timeout'; }
   get isAborted() { return this.kind === 'aborted' || this.code === 'aborted'; }
   get isOffline() { return this.code === 'offline'; }
-  get isAuth() { return this.status === 401; }
-  get isForbidden() { return this.status === 403; }
+  // DRF session auth answers 403 "not_authenticated" (not 401) to anonymous callers.
+  get isAuth() {
+    return this.status === 401
+      || (this.status === 403 && ['not_authenticated', 'authentication_failed'].includes(this.code));
+  }
+  get isForbidden() { return this.status === 403 && !this.isAuth; }
   get isNotFound() { return this.status === 404; }
   get isValidation() { return this.status === 400 || this.status === 422; }
   get isConflict() { return this.status === 409; }
@@ -114,7 +118,7 @@ export function normalizeErrorBody(body, status) {
   }
 
   Object.entries(body).forEach(([key, value]) => {
-    if (['detail', 'message', 'code', 'error', 'status'].includes(key)) return;
+    if (['detail', 'message', 'code', 'error', 'status', 'request_id'].includes(key)) return;
     if (key === 'non_field_errors') {
       const text = asMessages(value).join(' ');
       message = message ? `${message} ${text}` : text;
@@ -151,18 +155,45 @@ function flattenFields(fields, prefix = '') {
   return out;
 }
 
+/**
+ * The backend wraps most successful responses as
+ *   {status: "success", data: <payload>, ...siblings}
+ * and paginated ones as {status, count, page, total_pages, results}.
+ * Callers want the payload. Sibling keys the backend adds next to `data`
+ * (seo, breadcrumb, message, summary…) are preserved on object payloads.
+ */
+export function unwrapEnvelope(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
+  if (body.status !== 'success' || !('data' in body)) return body;
+  const { status, data, ...rest } = body;
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const extras = {};
+    Object.entries(rest).forEach(([key, value]) => { if (!(key in data)) extras[key] = value; });
+    return { ...data, ...extras };
+  }
+  return data;
+}
+
 /* ============================================================================
    Client
    ========================================================================== */
 
 class ApiClient {
   constructor() {
-    this.baseUrl = CONFIG.API_BASE_URL ?? '/api/v1';
+    this.baseUrl = CONFIG.API_BASE_URL ?? '/api';
     this.timeout = CONFIG.REQUEST_TIMEOUT_MS ?? 20000;
     this.retryAttempts = CONFIG.RETRY_ATTEMPTS ?? 2;
     this.retryBaseDelay = CONFIG.RETRY_BASE_DELAY_MS ?? 400;
     this.cacheTtl = CONFIG.PUBLIC_CACHE_TTL_MS ?? 60000;
-    this.authMode = CONFIG.AUTH_MODE || 'session';
+    // 'session' (default) = DRF session cookie + CSRF.
+    // 'token' = DRF TokenAuthentication ("Authorization: Token <key>").
+    // 'jwt' is accepted as a legacy alias of 'token' (the backend issues DRF
+    // tokens, not JWTs).
+    const mode = String(CONFIG.AUTH_MODE || 'session').toLowerCase();
+    this.authMode = mode === 'jwt' ? 'token' : mode;
+    /** CSRF token fetched from /auth/csrf/ when the cookie is not readable. */
+    this.csrfToken = null;
+    this._csrfPromise = null;
 
     /** @type {Map<string, Promise<any>>} in-flight GET deduplication */
     this.inflight = new Map();
@@ -170,6 +201,11 @@ class ApiClient {
     this.cache = new Map();
     /** In-memory only. Never persisted to localStorage. */
     this.accessToken = null;
+    if (this.authMode === 'token') {
+      // Tab-scoped only (sessionStorage): survives a reload, never shared
+      // across tabs and never written to localStorage.
+      try { this.accessToken = window.sessionStorage.getItem('starmond:auth_token') || null; } catch { /* storage blocked */ }
+    }
     this._refreshPromise = null;
     this._listeners = new Map();
     this._online = typeof navigator === 'undefined' ? true : navigator.onLine !== false;
@@ -198,22 +234,49 @@ class ApiClient {
 
   /* --------------------------------------------------------------- auth -- */
 
-  setAccessToken(token) { this.accessToken = token || null; }
-  clearAccessToken() { this.accessToken = null; }
-
-  getCartToken() {
-    let token = storage.get('cart_token');
-    if (!token) {
-      token = randomToken(24);
-      storage.set('cart_token', token);
-    }
-    return token;
+  setAccessToken(token) {
+    this.accessToken = this.authMode === 'token' ? (token || null) : null;
+    if (this.authMode !== 'token') return;
+    try {
+      if (token) window.sessionStorage.setItem('starmond:auth_token', token);
+      else window.sessionStorage.removeItem('starmond:auth_token');
+    } catch { /* storage blocked */ }
   }
+  clearAccessToken() { this.setAccessToken(null); }
 
-  rotateCartToken() {
-    const token = randomToken(24);
-    storage.set('cart_token', token);
-    return token;
+  /** The guest cart token is ISSUED BY THE BACKEND (GET /cart/ → data.token)
+   *  and echoed back in X-Cart-Token. The browser never invents one. */
+  getCartToken() { return storage.get('cart_token') || null; }
+  setCartToken(token) { if (token) storage.set('cart_token', token); }
+
+  /* --------------------------------------------------------------- csrf -- */
+
+  /** Forget the CSRF token (Django rotates it on login/logout). */
+  resetCsrf() { this.csrfToken = null; }
+
+  /**
+   * Resolve a CSRF token for an unsafe request.
+   * Same-origin deployments read Django's cookie directly. When the API lives
+   * on another origin the cookie is unreadable, so the token comes from
+   * GET /auth/csrf/ (which also sets the cookie on the API origin).
+   */
+  async ensureCsrf() {
+    const cookie = this.readCookie(CONFIG.CSRF_COOKIE_NAME || 'csrftoken');
+    if (cookie) return cookie;
+    if (this.csrfToken) return this.csrfToken;
+    if (!this._csrfPromise) {
+      this._csrfPromise = fetch(this.url('/auth/csrf/'), {
+        method: 'GET', credentials: 'include', headers: { Accept: 'application/json' }, cache: 'no-store',
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((body) => {
+          this.csrfToken = body?.data?.csrf_token || body?.csrf_token || null;
+          return this.readCookie(CONFIG.CSRF_COOKIE_NAME || 'csrftoken') || this.csrfToken;
+        })
+        .catch(() => null)
+        .finally(() => { this._csrfPromise = null; });
+    }
+    return this._csrfPromise;
   }
 
   clearCartToken() { storage.remove('cart_token'); }
@@ -271,6 +334,8 @@ class ApiClient {
     const verb = method.toUpperCase();
     const url = this.url(path, params);
     const canCache = cache && verb === 'GET' && this.isCacheable(path);
+    // Session auth: every unsafe request must carry Django's CSRF token.
+    if (auth && UNSAFE.has(verb) && this.authMode !== 'token') await this.ensureCsrf();
     const headers = this.buildHeaders(verb, body, auth, extraHeaders);
     const key = this.cacheKey(url, headers);
 
@@ -303,11 +368,11 @@ class ApiClient {
     }
 
     if (auth) {
-      if (this.authMode === 'jwt' && this.accessToken) {
-        headers.Authorization = `Bearer ${this.accessToken}`;
+      if (this.authMode === 'token' && this.accessToken) {
+        headers.Authorization = `Token ${this.accessToken}`;
       }
-      if (UNSAFE.has(verb)) {
-        const csrf = this.readCookie(CONFIG.CSRF_COOKIE_NAME || 'csrftoken');
+      if (UNSAFE.has(verb) && this.authMode !== 'token') {
+        const csrf = this.readCookie(CONFIG.CSRF_COOKIE_NAME || 'csrftoken') || this.csrfToken;
         if (csrf) headers[CONFIG.CSRF_HEADER_NAME || 'X-CSRFToken'] = csrf;
       }
       const cartToken = storage.get('cart_token');
@@ -372,21 +437,12 @@ class ApiClient {
       clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
 
-      // 401 on a JWT deployment: try one silent refresh, then replay once.
-      if (response.status === 401 && this.authMode === 'jwt' && !url.includes('/auth/refresh') && !headers['X-Retried-Auth']) {
-        const refreshed = await this.tryRefresh();
-        if (refreshed) {
-          const retryHeaders = { ...this.buildHeaders(verb, body, true, {}), 'X-Retried-Auth': '1' };
-          return this.execute(url, { verb, body, headers: retryHeaders, timeout, signal, attemptLimit: 0, raw, path });
-        }
-      }
-
       if (response.ok) {
         if (raw) return response;
         if (response.status === 204) return null;
         const type = response.headers.get('content-type') || '';
         if (type.includes('application/json')) {
-          try { return await response.json(); }
+          try { return unwrapEnvelope(await response.json()); }
           catch {
             throw new ApiError('The store returned an unreadable response.', {
               status: response.status, code: 'parse_error', kind: 'parse', url,
@@ -426,7 +482,7 @@ class ApiClient {
         retryAfter: response.headers.get('Retry-After'),
       });
 
-      if (response.status === 401) this.emit('unauthorized', error);
+      if (error.isAuth) this.emit('unauthorized', error);
       if (response.status === 403) this.emit('forbidden', error);
       if (response.status >= 500) this.emit('server-error', error);
 
@@ -440,31 +496,8 @@ class ApiClient {
     return Math.min(base + Math.random() * 150, 5000);
   }
 
-  async tryRefresh() {
-    if (this._refreshPromise) return this._refreshPromise;
-    this._refreshPromise = (async () => {
-      try {
-        const res = await fetch(this.url('/auth/refresh/'), {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: '{}',
-        });
-        if (!res.ok) return false;
-        const data = await res.json();
-        const token = data.access || data.access_token || data.token;
-        if (!token) return false;
-        this.setAccessToken(token);
-        this.emit('token-refreshed', token);
-        return true;
-      } catch {
-        return false;
-      } finally {
-        this._refreshPromise = null;
-      }
-    })();
-    return this._refreshPromise;
-  }
+  /** The backend issues DRF tokens / sessions; there is no refresh endpoint. */
+  async tryRefresh() { return false; }
 
   /* ------------------------------------------------------------ verbs ---- */
 
@@ -517,8 +550,12 @@ export function normalizeList(data) {
     return {
       results: data.results,
       count: typeof data.count === 'number' ? data.count : data.results.length,
-      next: data.next ?? null,
-      previous: data.previous ?? null,
+      // StandardPagination reports page numbers rather than next/previous URLs.
+      page: data.page ?? null,
+      page_size: data.page_size ?? null,
+      total_pages: data.total_pages ?? null,
+      next: data.next ?? (data.page && data.total_pages && data.page < data.total_pages ? data.page + 1 : null),
+      previous: data.previous ?? (data.page && data.page > 1 ? data.page - 1 : null),
     };
   }
   if (data && Array.isArray(data.items)) {

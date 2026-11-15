@@ -154,17 +154,10 @@
     </div>
     <form class="panel stack" data-register-form novalidate>
       <div class="alert alert--danger" data-form-error hidden role="alert"></div>
-      <div class="form-grid">
-        <div class="field">
-          <label class="field__label" for="reg-first">First name</label>
-          <input class="input" id="reg-first" name="first_name" type="text" required autocomplete="given-name">
-          <p class="field__error" data-error-for="first_name"></p>
-        </div>
-        <div class="field">
-          <label class="field__label" for="reg-last">Last name</label>
-          <input class="input" id="reg-last" name="last_name" type="text" required autocomplete="family-name">
-          <p class="field__error" data-error-for="last_name"></p>
-        </div>
+      <div class="field">
+        <label class="field__label" for="reg-name">Full name</label>
+        <input class="input" id="reg-name" name="full_name" type="text" required autocomplete="name" maxlength="150">
+        <p class="field__error" data-error-for="full_name"></p>
       </div>
       <div class="field">
         <label class="field__label" for="reg-email">Email address</label>

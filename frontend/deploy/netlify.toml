@@ -5,6 +5,11 @@
   command = "node tools/write-config.mjs && node tools/build-pages.mjs && node tools/prerender.mjs"
 
 [[redirects]]
+  from = "/media/*"
+  to = "https://your-backend-domain.example/media/:splat"
+  status = 200
+
+[[redirects]]
   from = "/api/*"
   to = "https://your-backend-domain.example/api/:splat"
   status = 200

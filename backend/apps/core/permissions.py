@@ -16,7 +16,7 @@ def get_staff_profile(user):
 def user_has_permission(user, codename):
     if not user or not user.is_authenticated:
         return False
-    if user.is_superuser or user.is_staff:
+    if user.is_superuser:
         return True
     profile = get_staff_profile(user)
     if not profile or not profile.is_active or not profile.role:
@@ -30,7 +30,11 @@ class IsStaffWithPermission(BasePermission):
     def has_permission(self, request, view):
         codename = getattr(view, "permission_codename", None)
         if codename is None:
-            return request.user.is_authenticated and (request.user.is_staff or request.user.is_superuser)
+            user = request.user
+            if not user or not user.is_authenticated:
+                return False
+            profile = get_staff_profile(user)
+            return user.is_superuser or bool(profile and profile.is_active and profile.role)
         return user_has_permission(request.user, codename)
 
 

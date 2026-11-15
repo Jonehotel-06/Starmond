@@ -1,5 +1,6 @@
 import django_filters as filters
-from django.db.models import Avg, Case, Count, F, IntegerField, Q, Sum, Value, When
+from django.db.models import Avg, Case, Count, Exists, F, IntegerField, OuterRef, Q, Sum, Value, When
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import OpenApiTypes, extend_schema
 from rest_framework import status, viewsets
@@ -38,13 +39,14 @@ class ProductPublicFilter(filters.FilterSet):
     featured = filters.BooleanFilter(field_name="is_featured")
     new_arrivals = filters.BooleanFilter(field_name="is_new_arrival")
     best_sellers = filters.BooleanFilter(field_name="is_best_seller")
-    brand = filters.CharFilter(field_name="brand", lookup_expr="iexact")
+    brand = filters.CharFilter(method="filter_brand")
+    on_sale = filters.BooleanFilter(method="filter_on_sale")
     in_stock = filters.BooleanFilter(method="filter_in_stock")
     q = filters.CharFilter(method="filter_q")
 
     class Meta:
         model = Product
-        fields = ["category", "featured", "new_arrivals", "best_sellers", "brand", "in_stock", "min_price", "max_price"]
+        fields = ["category", "featured", "new_arrivals", "best_sellers", "brand", "on_sale", "in_stock", "min_price", "max_price"]
 
     def filter_category(self, qs, name, value):
         category = Category.objects.filter(Q(slug=value) | Q(pk=value if str(value).isdigit() else 0)).first()
@@ -60,6 +62,20 @@ class ProductPublicFilter(filters.FilterSet):
                 seen.add(node.pk)
             frontier.extend(Category.objects.filter(parent=node))
         return qs.filter(category_id__in=ids)
+
+    def filter_brand(self, qs, name, value):
+        """One brand or a comma-separated list (case-insensitive)."""
+        names = [v.strip() for v in str(value).split(",") if v.strip()][:20]
+        if not names:
+            return qs
+        query = Q()
+        for brand in names:
+            query |= Q(brand__iexact=brand)
+        return qs.filter(query)
+
+    def filter_on_sale(self, qs, name, value):
+        discounted = Q(sale_price__isnull=False, sale_price__lt=F("regular_price"))
+        return qs.filter(discounted) if value else qs.exclude(discounted)
 
     def _price_expr(self):
         from django.db.models.functions import Coalesce
@@ -92,7 +108,8 @@ class PublicProductViewSet(viewsets.ReadOnlyModelViewSet):
     filterset_class = ProductPublicFilter
     lookup_field = "slug"
     lookup_value_regex = "[^/]+"
-    ordering_fields = ["created_at", "name", "regular_price"]
+    # "price" = the price the customer actually pays (sale price when set).
+    ordering_fields = ["created_at", "name", "regular_price", "price", "avg_rating", "is_featured", "is_best_seller"]
     ordering = ["-created_at"]
 
     def get_queryset(self):
@@ -101,6 +118,8 @@ class PublicProductViewSet(viewsets.ReadOnlyModelViewSet):
             .select_related("category__parent__parent")
             .prefetch_related("images")
             .annotate(
+                price=Coalesce("sale_price", "regular_price"),
+                annotated_has_variations=Exists(ProductVariation.objects.filter(product=OuterRef("pk"))),
                 avg_rating=Avg("reviews__rating", filter=Q(reviews__moderation_status="approved")),
                 review_count=Count("reviews", filter=Q(reviews__moderation_status="approved"), distinct=True),
             )
@@ -110,6 +129,44 @@ class PublicProductViewSet(viewsets.ReadOnlyModelViewSet):
         if self.action == "retrieve":
             return ProductPublicDetailSerializer
         return _BaseProductFields
+
+    @extend_schema(responses=OpenApiTypes.OBJECT)
+    @action(detail=False, methods=["get"], url_path="facets")
+    def facets(self, request):
+        """GET /api/products/facets/?category=<slug>&q=... — filter metadata
+        (brands with counts, price bounds) for the current catalogue scope."""
+        from django.db.models import Max, Min
+        from django.db.models.functions import Coalesce
+        scope = {k: v for k, v in request.query_params.items() if k in ("category", "q")}
+        qs = ProductPublicFilter(scope, queryset=Product.objects.public()).qs
+        bounds = qs.annotate(_p=Coalesce("sale_price", "regular_price")).aggregate(lo=Min("_p"), hi=Max("_p"))
+        brands = (qs.exclude(brand="").values("brand").annotate(count=Count("id", distinct=True))
+                  .order_by("brand"))
+        return Response({"status": "success", "data": {
+            "brands": [{"name": b["brand"], "count": b["count"]} for b in brands],
+            "price": {"min": str(bounds["lo"]) if bounds["lo"] is not None else None,
+                      "max": str(bounds["hi"]) if bounds["hi"] is not None else None},
+            "count": qs.count(),
+        }})
+
+    @extend_schema(responses=_BaseProductFields(many=True))
+    @action(detail=True, methods=["get"], url_path="related")
+    def related(self, request, slug=None):
+        """GET /api/products/{slug}/related/?limit= — other active products
+        from the same category (falls back to the parent category)."""
+        product = get_object_or_404(Product.objects.public(), slug=slug)
+        try:
+            limit = max(1, min(int(request.query_params.get("limit", 8)), 24))
+        except (TypeError, ValueError):
+            limit = 8
+        base = self.get_queryset().exclude(pk=product.pk)
+        items = list(base.filter(category_id=product.category_id)[:limit])
+        if len(items) < limit and product.category.parent_id:
+            seen = [p.pk for p in items]
+            items += list(base.filter(category__parent_id=product.category.parent_id)
+                          .exclude(pk__in=seen)[:limit - len(items)])
+        data = _BaseProductFields(items, many=True, context={"request": request}).data
+        return Response({"status": "success", "data": data})
 
     def retrieve(self, request, *args, **kwargs):
         product = get_object_or_404(

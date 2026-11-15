@@ -29,8 +29,8 @@ $('[data-contact-form]')?.addEventListener('submit', async (event) => {
   if (Object.keys(errors).length) { applyFormErrors(form, errors); return; }
 
   try {
-    await withSubmit(form, form.querySelector('button[type="submit"]'), () => api.post('/enquiries/', {
-      name: String(values.name).trim(),
+    await withSubmit(form, form.querySelector('button[type="submit"]'), () => api.post('/notifications/enquiries/', {
+      full_name: String(values.name).trim(),
       email: String(values.email).trim().toLowerCase(),
       phone: values.phone ? normalizePhone(values.phone) : '',
       subject: values.subject,

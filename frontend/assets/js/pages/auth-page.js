@@ -5,11 +5,12 @@
 import boot from '../boot.js';
 import {
   login, register, requestPasswordReset, confirmPasswordReset,
-  verifyEmail, resendVerification, isAuthenticated, safeNext, initAuth,
+  verifyEmail, resendVerification, isAuthenticated, isStaff, safeNext, initAuth,
 } from '../auth.js';
 import { withSubmit, formData, applyFormErrors, toast, resolveRegion, emptyState } from '../ui.js';
 import { icon, hydrateIcons } from '../icons.js';
-import { $, readQuery, isEmail, normalizePhone } from '../utils.js';
+import { $, esc, readQuery, isEmail, normalizePhone } from '../utils.js';
+import api from '../api.js';
 
 await boot();
 await initAuth();
@@ -65,10 +66,10 @@ $('[data-login-form]')?.addEventListener('submit', async (event) => {
     await withSubmit(form, form.querySelector('button[type="submit"]'), () => login({
       email: String(values.email).trim().toLowerCase(),
       password: values.password,
-      remember: !!values.remember,
     }));
     toast('Signed in successfully.', { type: 'success' });
-    window.location.assign(next);
+    // Staff land on the admin console unless they were sent here from a specific page.
+    window.location.assign(!params.next && isStaff() ? '/admin/index.html' : next);
   } catch { /* rendered on the form */ }
 });
 
@@ -78,8 +79,7 @@ $('[data-register-form]')?.addEventListener('submit', async (event) => {
   const form = event.currentTarget;
   const values = formData(form);
   const errors = {};
-  if (!String(values.first_name || '').trim()) errors.first_name = 'Enter your first name.';
-  if (!String(values.last_name || '').trim()) errors.last_name = 'Enter your last name.';
+  if (String(values.full_name || '').trim().length < 2) errors.full_name = 'Enter your full name.';
   if (!isEmail(values.email)) errors.email = 'Enter a valid email address.';
   if (!values.phone) errors.phone = 'Enter a phone number.';
   if (String(values.password || '').length < 8) errors.password = 'Use at least 8 characters.';
@@ -89,15 +89,15 @@ $('[data-register-form]')?.addEventListener('submit', async (event) => {
 
   try {
     await withSubmit(form, form.querySelector('button[type="submit"]'), () => register({
-      first_name: String(values.first_name).trim(),
-      last_name: String(values.last_name).trim(),
+      full_name: String(values.full_name).trim(),
       email: String(values.email).trim().toLowerCase(),
       phone: normalizePhone(values.phone),
       password: values.password,
-      password_confirm: values.password_confirm,
-      accept_terms: true,
-      newsletter_opt_in: !!values.newsletter_opt_in,
     }));
+    if (values.newsletter_opt_in) {
+      // Optional and independent of the account: POST /notifications/newsletter/
+      api.post('/notifications/newsletter/', { email: String(values.email).trim().toLowerCase() }).catch(() => {});
+    }
     if (isAuthenticated()) {
       toast('Account created. Welcome to Starmond.', { type: 'success' });
       window.location.assign(next);
@@ -106,7 +106,7 @@ $('[data-register-form]')?.addEventListener('submit', async (event) => {
       form.insertAdjacentHTML('afterend', `<div class="alert alert--success" role="status">
         <span class="alert__icon">${icon('mail')}</span>
         <div class="alert__body"><span class="alert__title">Verify your email</span>
-        <span>We sent a verification link to ${String(values.email).trim()}. Open it to activate your account, then sign in.</span></div>
+        <span>We sent a verification link to ${esc(String(values.email).trim())}. Open it to activate your account, then sign in.</span></div>
       </div>`);
       hydrateIcons(form.parentElement);
     }
@@ -135,14 +135,13 @@ $('[data-reset-form]')?.addEventListener('submit', async (event) => {
   const form = event.currentTarget;
   const values = formData(form);
   const errors = {};
-  if (!params.token && !params.uid) errors.detail = 'This reset link is incomplete. Request a new one.';
+  if (!params.token || !params.uid) errors.detail = 'This reset link is incomplete. Request a new one.';
   if (String(values.new_password || '').length < 8) errors.new_password = 'Use at least 8 characters.';
   if (values.new_password !== values.new_password_confirm) errors.new_password_confirm = 'Passwords do not match.';
   if (Object.keys(errors).length) { applyFormErrors(form, errors); return; }
   try {
     await withSubmit(form, form.querySelector('button[type="submit"]'), () => confirmPasswordReset({
-      token: params.token, uid: params.uid,
-      new_password: values.new_password, new_password_confirm: values.new_password_confirm,
+      token: params.token, uid: params.uid, new_password: values.new_password,
     }));
     toast('Password updated. You can now sign in.', { type: 'success' });
     setTimeout(() => window.location.assign('/login.html'), 1500);
@@ -170,7 +169,7 @@ if (verifyRegion) {
     } catch (error) {
       resolveRegion(verifyRegion, `<div class="alert alert--danger" role="alert">
         <span class="alert__icon">${icon('alert-circle')}</span>
-        <div class="alert__body"><span class="alert__title">Verification failed</span><span>${error.userMessage || 'This link is invalid or has expired.'}</span></div>
+        <div class="alert__body"><span class="alert__title">Verification failed</span><span>${esc(error.userMessage || 'This link is invalid or has expired.')}</span></div>
       </div>`);
       showResend();
     }

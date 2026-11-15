@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Promotions — Starmond Admin</title>
-<meta name="description" content="Promotions administration for Starmond Technology Limited.">
+<title>Promotions &amp; discount codes — Starmond Admin</title>
+<meta name="description" content="Promotions &amp; discount codes administration for Starmond Technology Limited.">
 <link rel="canonical" href="/admin/promotions.html">
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#6335A8">
@@ -12,14 +12,14 @@
 <meta name="author" content="STARMOND TECHNOLOGY LIMITED">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="STARMOND TECHNOLOGY LIMITED">
-<meta property="og:title" content="Promotions — Starmond Admin">
-<meta property="og:description" content="Promotions administration for Starmond Technology Limited.">
+<meta property="og:title" content="Promotions &amp; discount codes — Starmond Admin">
+<meta property="og:description" content="Promotions &amp; discount codes administration for Starmond Technology Limited.">
 <meta property="og:url" content="/admin/promotions.html">
 <meta property="og:locale" content="en_NG">
 
 <meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="Promotions — Starmond Admin">
-<meta name="twitter:description" content="Promotions administration for Starmond Technology Limited.">
+<meta name="twitter:title" content="Promotions &amp; discount codes — Starmond Admin">
+<meta name="twitter:description" content="Promotions &amp; discount codes administration for Starmond Technology Limited.">
 
 <link rel="icon" href="/assets/icons/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/assets/icons/icon-192.png">
@@ -60,7 +60,7 @@
     
     <div class="admin-nav__group">
       <p class="admin-nav__label">Overview</p>
-      <a class="admin-nav__link" href="/admin/index.html">
+      <a class="admin-nav__link" href="/admin/index.html" data-perm="dashboard.view">
         <i data-icon="dashboard" data-size="sm"></i><span>Dashboard</span>
       </a><a class="admin-nav__link" href="/admin/reports.html" data-perm="reports.view">
         <i data-icon="chart" data-size="sm"></i><span>Reports</span>
@@ -70,15 +70,13 @@
       <p class="admin-nav__label">Catalogue</p>
       <a class="admin-nav__link" href="/admin/products.html" data-perm="products.view">
         <i data-icon="package" data-size="sm"></i><span>Products</span>
-      </a><a class="admin-nav__link" href="/admin/categories.html" data-perm="categories.view">
+      </a><a class="admin-nav__link" href="/admin/categories.html" data-perm="categories.manage">
         <i data-icon="folder" data-size="sm"></i><span>Categories</span>
-      </a><a class="admin-nav__link" href="/admin/subcategories.html" data-perm="categories.view">
+      </a><a class="admin-nav__link" href="/admin/subcategories.html" data-perm="categories.manage">
         <i data-icon="layers" data-size="sm"></i><span>Subcategories</span>
-      </a><a class="admin-nav__link" href="/admin/variations.html" data-perm="products.view">
-        <i data-icon="grid" data-size="sm"></i><span>Variations</span>
       </a><a class="admin-nav__link" href="/admin/inventory.html" data-perm="inventory.view">
         <i data-icon="clipboard" data-size="sm"></i><span>Inventory</span>
-      </a><a class="admin-nav__link" href="/admin/media.html" data-perm="media.view">
+      </a><a class="admin-nav__link" href="/admin/media.html" data-perm="media.manage">
         <i data-icon="image" data-size="sm"></i><span>Media library</span>
       </a>
     </div>
@@ -86,13 +84,13 @@
       <p class="admin-nav__label">Sales</p>
       <a class="admin-nav__link" href="/admin/orders.html" data-perm="orders.view">
         <i data-icon="receipt" data-size="sm"></i><span>Orders</span>
-      </a><a class="admin-nav__link" href="/admin/payments.html" data-perm="payments.view">
+      </a><a class="admin-nav__link" href="/admin/payments.html" data-perm="finance.view">
         <i data-icon="credit-card" data-size="sm"></i><span>Payments</span>
-      </a><a class="admin-nav__link" href="/admin/refunds.html" data-perm="refunds.view">
+      </a><a class="admin-nav__link" href="/admin/refunds.html" data-perm="finance.view">
         <i data-icon="undo" data-size="sm"></i><span>Refunds</span>
-      </a><a class="admin-nav__link" href="/admin/delivery.html" data-perm="delivery.view">
-        <i data-icon="truck" data-size="sm"></i><span>Delivery</span>
-      </a><a class="admin-nav__link" href="/admin/shipping-zones.html" data-perm="delivery.view">
+      </a><a class="admin-nav__link" href="/admin/delivery.html" data-perm="shipping.manage">
+        <i data-icon="truck" data-size="sm"></i><span>Delivery methods</span>
+      </a><a class="admin-nav__link" href="/admin/shipping-zones.html" data-perm="shipping.manage">
         <i data-icon="map-pin" data-size="sm"></i><span>Shipping zones</span>
       </a>
     </div>
@@ -100,43 +98,45 @@
       <p class="admin-nav__label">Customers</p>
       <a class="admin-nav__link" href="/admin/customers.html" data-perm="customers.view">
         <i data-icon="users" data-size="sm"></i><span>Customers</span>
-      </a><a class="admin-nav__link" href="/admin/reviews.html" data-perm="reviews.view">
+      </a><a class="admin-nav__link" href="/admin/reviews.html" data-perm="reviews.moderate">
         <i data-icon="star" data-size="sm"></i><span>Reviews</span>
-      </a><a class="admin-nav__link" href="/admin/enquiries.html" data-perm="enquiries.view">
+      </a><a class="admin-nav__link" href="/admin/enquiries.html" data-perm="notifications.manage">
         <i data-icon="message" data-size="sm"></i><span>Enquiries</span>
-      </a><a class="admin-nav__link" href="/admin/newsletter.html" data-perm="newsletter.view">
+      </a><a class="admin-nav__link" href="/admin/newsletter.html" data-perm="notifications.manage">
         <i data-icon="mail" data-size="sm"></i><span>Newsletter</span>
       </a>
     </div>
     <div class="admin-nav__group">
       <p class="admin-nav__label">Marketing</p>
-      <a class="admin-nav__link" href="/admin/discounts.html" data-perm="discounts.view">
-        <i data-icon="percent" data-size="sm"></i><span>Discounts</span>
-      </a><a class="admin-nav__link" href="/admin/promotions.html" aria-current="page" data-perm="promotions.view">
-        <i data-icon="tag" data-size="sm"></i><span>Promotions</span>
+      <a class="admin-nav__link" href="/admin/promotions.html" aria-current="page" data-perm="promotions.manage">
+        <i data-icon="tag" data-size="sm"></i><span>Promotions & discount codes</span>
       </a>
     </div>
     <div class="admin-nav__group">
       <p class="admin-nav__label">Content</p>
-      <a class="admin-nav__link" href="/admin/content.html" data-perm="content.view">
-        <i data-icon="file-text" data-size="sm"></i><span>Website content</span>
-      </a><a class="admin-nav__link" href="/admin/homepage.html" data-perm="content.view">
-        <i data-icon="home" data-size="sm"></i><span>Homepage</span>
-      </a><a class="admin-nav__link" href="/admin/seo.html" data-perm="seo.view">
+      <a class="admin-nav__link" href="/admin/content.html" data-perm="cms.manage">
+        <i data-icon="file-text" data-size="sm"></i><span>Pages & policies</span>
+      </a><a class="admin-nav__link" href="/admin/homepage.html" data-perm="settings.manage">
+        <i data-icon="home" data-size="sm"></i><span>Homepage hero</span>
+      </a><a class="admin-nav__link" href="/admin/homepage-sections.html" data-perm="cms.manage">
+        <i data-icon="layers" data-size="sm"></i><span>Homepage sections</span>
+      </a><a class="admin-nav__link" href="/admin/banners.html" data-perm="cms.manage">
+        <i data-icon="image" data-size="sm"></i><span>Banners</span>
+      </a><a class="admin-nav__link" href="/admin/seo.html" data-perm="seo.manage">
         <i data-icon="globe" data-size="sm"></i><span>SEO settings</span>
       </a>
     </div>
     <div class="admin-nav__group">
       <p class="admin-nav__label">System</p>
-      <a class="admin-nav__link" href="/admin/notifications.html" data-perm="notifications.view">
-        <i data-icon="bell" data-size="sm"></i><span>Notifications</span>
-      </a><a class="admin-nav__link" href="/admin/email-logs.html" data-perm="notifications.view">
+      <a class="admin-nav__link" href="/admin/email-logs.html" data-perm="notifications.manage">
         <i data-icon="send" data-size="sm"></i><span>Email logs</span>
-      </a><a class="admin-nav__link" href="/admin/staff.html" data-perm="staff.view">
-        <i data-icon="shield" data-size="sm"></i><span>Staff & permissions</span>
+      </a><a class="admin-nav__link" href="/admin/staff.html" data-perm="staff.manage">
+        <i data-icon="shield" data-size="sm"></i><span>Staff</span>
+      </a><a class="admin-nav__link" href="/admin/roles.html" data-perm="staff.manage">
+        <i data-icon="lock" data-size="sm"></i><span>Roles & permissions</span>
       </a><a class="admin-nav__link" href="/admin/audit-logs.html" data-perm="audit.view">
         <i data-icon="eye" data-size="sm"></i><span>Audit logs</span>
-      </a><a class="admin-nav__link" href="/admin/settings.html" data-perm="settings.view">
+      </a><a class="admin-nav__link" href="/admin/settings.html" data-perm="settings.manage">
         <i data-icon="settings" data-size="sm"></i><span>Business settings</span>
       </a>
     </div>
@@ -149,14 +149,14 @@
 <div class="admin-main">
 <div class="admin-topbar">
   <button type="button" class="icon-btn admin-menu-trigger" data-admin-menu aria-label="Open administration menu" aria-controls="admin-sidebar"><i data-icon="menu"></i></button>
-  <h1 class="admin-topbar__title">Promotions</h1>
+  <h1 class="admin-topbar__title">Promotions &amp; discount codes</h1>
   <div class="admin-topbar__search">
     <i data-icon="search" data-size="sm"></i>
     <label class="sr-only" for="admin-global-search">Search the administration console</label>
     <input class="input" id="admin-global-search" type="search" placeholder="Search products, orders, customers" data-admin-search>
   </div>
   <div class="admin-topbar__actions">
-    <a class="icon-btn" href="/admin/notifications.html" aria-label="Notifications"><i data-icon="bell"></i></a>
+    <a class="icon-btn" href="/admin/enquiries.html" aria-label="Customer enquiries" data-perm="notifications.manage"><i data-icon="message"></i></a>
     <span class="header-actions__wrap">
       <button type="button" class="icon-btn" data-admin-profile aria-expanded="false" aria-controls="admin-profile-menu" aria-label="Account menu"><i data-icon="user"></i></button>
       <div class="menu" id="admin-profile-menu" data-admin-profile-menu hidden></div>
@@ -166,19 +166,19 @@
 <div class="admin-content" id="main">
 <div class="admin-page-head">
   <div class="admin-page-head__text">
-    <h2 class="admin-page-head__title">Promotions</h2>
-    <p class="admin-page-head__sub">Manage promotional banners and campaign scheduling.</p>
+    <h2 class="admin-page-head__title">Promotions & discount codes</h2>
+    <p class="admin-page-head__sub">Discount codes, their eligibility rules, usage limits and schedule.</p>
   </div>
   <div class="admin-page-head__actions" data-module-actions>
-    <button type="button" class="btn btn--primary" data-create data-perm="promotions.create"><i data-icon="plus" data-size="sm"></i> New promotion</button>
+    <button type="button" class="btn btn--primary" data-create data-perm="promotions.manage"><i data-icon="plus" data-size="sm"></i> New promotion</button>
   </div>
 </div>
 <div class="data-panel" data-admin-module="promotions">
   <div class="data-panel__toolbar">
     <div class="data-panel__search">
       <i data-icon="search" data-size="sm"></i>
-      <label class="sr-only" for="module-search-promotions">Search promotions</label>
-      <input class="input" id="module-search-promotions" type="search" placeholder="Search promotions" data-module-search>
+      <label class="sr-only" for="module-search-promotions">Search promotions & discount codes</label>
+      <input class="input" id="module-search-promotions" type="search" placeholder="Search promotions & discount codes" data-module-search>
     </div>
     <div class="data-panel__filters" data-module-filters></div>
     <span class="data-panel__spacer"></span>
@@ -189,7 +189,7 @@
   <div data-module-table data-loading-region aria-busy="true"><div class="sk-table" aria-hidden="true"><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div><div class="sk-table__row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr"><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span><span class="sk " aria-hidden="true"></span></div></div></div>
   <div class="data-panel__foot">
     <p class="data-panel__count" data-module-count aria-live="polite"></p>
-    <nav class="pagination" data-module-pagination aria-label="Promotions pagination"></nav>
+    <nav class="pagination" data-module-pagination aria-label="Promotions & discount codes pagination"></nav>
   </div>
 </div>
 </div>

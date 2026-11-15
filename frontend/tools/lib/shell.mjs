@@ -269,45 +269,45 @@ export function footer() {
 
 export const ADMIN_MODULES = [
   { group: 'Overview', items: [
-    { id: 'dashboard', label: 'Dashboard', href: '/admin/index.html', icon: 'dashboard' },
+    { id: 'dashboard', label: 'Dashboard', href: '/admin/index.html', icon: 'dashboard', perm: 'dashboard.view' },
     { id: 'reports', label: 'Reports', href: '/admin/reports.html', icon: 'chart', perm: 'reports.view' },
   ]},
   { group: 'Catalogue', items: [
     { id: 'products', label: 'Products', href: '/admin/products.html', icon: 'package', perm: 'products.view' },
-    { id: 'categories', label: 'Categories', href: '/admin/categories.html', icon: 'folder', perm: 'categories.view' },
-    { id: 'subcategories', label: 'Subcategories', href: '/admin/subcategories.html', icon: 'layers', perm: 'categories.view' },
-    { id: 'variations', label: 'Variations', href: '/admin/variations.html', icon: 'grid', perm: 'products.view' },
+    { id: 'categories', label: 'Categories', href: '/admin/categories.html', icon: 'folder', perm: 'categories.manage' },
+    { id: 'subcategories', label: 'Subcategories', href: '/admin/subcategories.html', icon: 'layers', perm: 'categories.manage' },
     { id: 'inventory', label: 'Inventory', href: '/admin/inventory.html', icon: 'clipboard', perm: 'inventory.view' },
-    { id: 'media', label: 'Media library', href: '/admin/media.html', icon: 'image', perm: 'media.view' },
+    { id: 'media', label: 'Media library', href: '/admin/media.html', icon: 'image', perm: 'media.manage' },
   ]},
   { group: 'Sales', items: [
     { id: 'orders', label: 'Orders', href: '/admin/orders.html', icon: 'receipt', perm: 'orders.view' },
-    { id: 'payments', label: 'Payments', href: '/admin/payments.html', icon: 'credit-card', perm: 'payments.view' },
-    { id: 'refunds', label: 'Refunds', href: '/admin/refunds.html', icon: 'undo', perm: 'refunds.view' },
-    { id: 'delivery', label: 'Delivery', href: '/admin/delivery.html', icon: 'truck', perm: 'delivery.view' },
-    { id: 'shipping-zones', label: 'Shipping zones', href: '/admin/shipping-zones.html', icon: 'map-pin', perm: 'delivery.view' },
+    { id: 'payments', label: 'Payments', href: '/admin/payments.html', icon: 'credit-card', perm: 'finance.view' },
+    { id: 'refunds', label: 'Refunds', href: '/admin/refunds.html', icon: 'undo', perm: 'finance.view' },
+    { id: 'delivery', label: 'Delivery methods', href: '/admin/delivery.html', icon: 'truck', perm: 'shipping.manage' },
+    { id: 'shipping-zones', label: 'Shipping zones', href: '/admin/shipping-zones.html', icon: 'map-pin', perm: 'shipping.manage' },
   ]},
   { group: 'Customers', items: [
     { id: 'customers', label: 'Customers', href: '/admin/customers.html', icon: 'users', perm: 'customers.view' },
-    { id: 'reviews', label: 'Reviews', href: '/admin/reviews.html', icon: 'star', perm: 'reviews.view' },
-    { id: 'enquiries', label: 'Enquiries', href: '/admin/enquiries.html', icon: 'message', perm: 'enquiries.view' },
-    { id: 'newsletter', label: 'Newsletter', href: '/admin/newsletter.html', icon: 'mail', perm: 'newsletter.view' },
+    { id: 'reviews', label: 'Reviews', href: '/admin/reviews.html', icon: 'star', perm: 'reviews.moderate' },
+    { id: 'enquiries', label: 'Enquiries', href: '/admin/enquiries.html', icon: 'message', perm: 'notifications.manage' },
+    { id: 'newsletter', label: 'Newsletter', href: '/admin/newsletter.html', icon: 'mail', perm: 'notifications.manage' },
   ]},
   { group: 'Marketing', items: [
-    { id: 'discounts', label: 'Discounts', href: '/admin/discounts.html', icon: 'percent', perm: 'discounts.view' },
-    { id: 'promotions', label: 'Promotions', href: '/admin/promotions.html', icon: 'tag', perm: 'promotions.view' },
+    { id: 'promotions', label: 'Promotions & discount codes', href: '/admin/promotions.html', icon: 'tag', perm: 'promotions.manage' },
   ]},
   { group: 'Content', items: [
-    { id: 'content', label: 'Website content', href: '/admin/content.html', icon: 'file-text', perm: 'content.view' },
-    { id: 'homepage', label: 'Homepage', href: '/admin/homepage.html', icon: 'home', perm: 'content.view' },
-    { id: 'seo', label: 'SEO settings', href: '/admin/seo.html', icon: 'globe', perm: 'seo.view' },
+    { id: 'content', label: 'Pages & policies', href: '/admin/content.html', icon: 'file-text', perm: 'cms.manage' },
+    { id: 'homepage', label: 'Homepage hero', href: '/admin/homepage.html', icon: 'home', perm: 'settings.manage' },
+    { id: 'homepage-sections', label: 'Homepage sections', href: '/admin/homepage-sections.html', icon: 'layers', perm: 'cms.manage' },
+    { id: 'banners', label: 'Banners', href: '/admin/banners.html', icon: 'image', perm: 'cms.manage' },
+    { id: 'seo', label: 'SEO settings', href: '/admin/seo.html', icon: 'globe', perm: 'seo.manage' },
   ]},
   { group: 'System', items: [
-    { id: 'notifications', label: 'Notifications', href: '/admin/notifications.html', icon: 'bell', perm: 'notifications.view' },
-    { id: 'email-logs', label: 'Email logs', href: '/admin/email-logs.html', icon: 'send', perm: 'notifications.view' },
-    { id: 'staff', label: 'Staff & permissions', href: '/admin/staff.html', icon: 'shield', perm: 'staff.view' },
+    { id: 'email-logs', label: 'Email logs', href: '/admin/email-logs.html', icon: 'send', perm: 'notifications.manage' },
+    { id: 'staff', label: 'Staff', href: '/admin/staff.html', icon: 'shield', perm: 'staff.manage' },
+    { id: 'roles', label: 'Roles & permissions', href: '/admin/roles.html', icon: 'lock', perm: 'staff.manage' },
     { id: 'audit-logs', label: 'Audit logs', href: '/admin/audit-logs.html', icon: 'eye', perm: 'audit.view' },
-    { id: 'settings', label: 'Business settings', href: '/admin/settings.html', icon: 'settings', perm: 'settings.view' },
+    { id: 'settings', label: 'Business settings', href: '/admin/settings.html', icon: 'settings', perm: 'settings.manage' },
   ]},
 ];
 
@@ -349,7 +349,7 @@ export function adminTopbar(title) {
     <input class="input" id="admin-global-search" type="search" placeholder="Search products, orders, customers" data-admin-search>
   </div>
   <div class="admin-topbar__actions">
-    <a class="icon-btn" href="/admin/notifications.html" aria-label="Notifications"><i data-icon="bell"></i></a>
+    <a class="icon-btn" href="/admin/enquiries.html" aria-label="Customer enquiries" data-perm="notifications.manage"><i data-icon="message"></i></a>
     <span class="header-actions__wrap">
       <button type="button" class="icon-btn" data-admin-profile aria-expanded="false" aria-controls="admin-profile-menu" aria-label="Account menu"><i data-icon="user"></i></button>
       <div class="menu" id="admin-profile-menu" data-admin-profile-menu hidden></div>

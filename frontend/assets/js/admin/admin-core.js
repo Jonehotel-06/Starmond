@@ -96,6 +96,11 @@ export function applyPermissions(root = document) {
       node.hidden = true;
     }
   });
+  // Hide sidebar section headings that have no visible links left.
+  document.querySelectorAll('.admin-nav__group').forEach((group) => {
+    const links = [...group.querySelectorAll('a[href]')];
+    group.hidden = links.length > 0 && links.every((link) => link.hidden || link.closest('[hidden]'));
+  });
 }
 
 function initSidebar() {
@@ -129,7 +134,7 @@ function initProfileMenu() {
     <div class="menu__head">
       <span class="menu__name">${esc(user?.full_name || [user?.first_name, user?.last_name].filter(Boolean).join(' ') || user?.email || 'Administrator')}</span>
       <span class="t-meta">${esc(user?.email || '')}</span>
-      <span class="t-meta">${esc((user?.roles || []).join(', ') || (user?.is_superuser ? 'Super administrator' : 'Staff'))}</span>
+      <span class="t-meta">${esc(user?.is_superuser ? 'Super administrator' : (user?.role?.name || user?.role || 'Staff'))}</span>
     </div>
     <a class="menu__item" href="/account.html">${icon('user', { size: 'sm' })} My profile</a>
     <a class="menu__item" href="/admin/settings.html">${icon('settings', { size: 'sm' })} Business settings</a>

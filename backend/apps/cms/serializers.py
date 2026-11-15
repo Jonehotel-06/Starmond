@@ -20,17 +20,35 @@ class PageSerializer(serializers.ModelSerializer):
         return obj.effective_seo()
 
 
+def _public_media_url(key):
+    """Storage key → public URL (keys are written by the media upload API)."""
+    if not key:
+        return None
+    from apps.media.services import MediaService
+    return MediaService.public_url(key)
+
+
 class HomepageSectionSerializer(serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+
+    def get_image_url(self, obj):
+        return _public_media_url(obj.image_key)
+
     class Meta:
         model = HomepageSection
-        fields = ["id", "kind", "title", "subtitle", "config", "image_key", "display_order",
+        fields = ["id", "kind", "title", "subtitle", "config", "image_key", "image_url", "display_order",
                   "is_active", "created_at"]
         read_only_fields = ["id", "created_at"]
 
 
 class BannerSerializer(serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+
+    def get_image_url(self, obj):
+        return _public_media_url(obj.image_key)
+
     class Meta:
         model = Banner
-        fields = ["id", "title", "subtitle", "image_key", "link_url", "placement",
+        fields = ["id", "title", "subtitle", "image_key", "image_url", "link_url", "placement",
                   "starts_at", "ends_at", "display_order", "is_active", "created_at"]
         read_only_fields = ["id", "created_at"]

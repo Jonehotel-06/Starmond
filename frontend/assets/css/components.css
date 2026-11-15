@@ -234,7 +234,9 @@
 
 /* ---- Breadcrumbs ------------------------------------------------------- */
 .breadcrumbs { font-size: var(--text-xs); color: var(--color-muted); }
-.breadcrumbs__list { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
+.breadcrumbs__list { display: flex; flex-wrap: nowrap; align-items: center; gap: var(--space-1); overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
+.breadcrumbs__list::-webkit-scrollbar { display: none; }
+.breadcrumbs__item { flex: none; }
 .breadcrumbs__item { display: inline-flex; align-items: center; gap: var(--space-1); }
 .breadcrumbs__item + .breadcrumbs__item::before {
   content: ""; width: 12px; height: 12px; flex: none; opacity: 0.6;

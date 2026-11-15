@@ -62,6 +62,20 @@ class StaffCategoryViewSet(viewsets.ModelViewSet):
     serializer_class = CategoryStaffSerializer
     queryset = Category.objects.select_related("parent").all()
     http_method_names = ["get", "post", "patch", "put", "delete"]
+    filterset_fields = ["parent", "is_active"]
+    search_fields = ["name", "slug"]
+    ordering_fields = ["name", "display_order", "created_at"]
+    ordering = ["parent__display_order", "display_order", "name"]
+
+    def get_queryset(self):
+        from django.db.models import Count
+        qs = super().get_queryset().annotate(direct_product_count=Count("products", distinct=True))
+        level = self.request.query_params.get("level")
+        if level == "top":
+            qs = qs.filter(parent__isnull=True)
+        elif level == "sub":
+            qs = qs.filter(parent__isnull=False)
+        return qs
 
     def perform_create(self, serializer):
         category = serializer.save()

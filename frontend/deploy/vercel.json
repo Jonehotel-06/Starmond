@@ -2,6 +2,7 @@
   "cleanUrls": true,
   "trailingSlash": true,
   "rewrites": [
+    { "source": "/media/:path*", "destination": "https://your-backend-domain.example/media/:path*" },
     { "source": "/api/:path*", "destination": "https://your-backend-domain.example/api/:path*" },
     { "source": "/shop/:path*", "destination": "/category.html" },
     { "source": "/products/:path*", "destination": "/product.html" }

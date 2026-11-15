@@ -24,8 +24,14 @@ def resolve_range(range_key="month", date_from=None, date_to=None):
     """Return (start_dt, end_dt) — timezone-aware datetimes."""
     now = timezone.localtime(timezone.now())
     if range_key == "custom" and (date_from or date_to):
-        start = timezone.datetime.fromisoformat(date_from) if date_from else (now - timedelta(days=30))
-        end = timezone.datetime.fromisoformat(date_to) if date_to else now
+        try:
+            start = timezone.datetime.fromisoformat(date_from) if date_from else (now - timedelta(days=30))
+            end = timezone.datetime.fromisoformat(date_to) if date_to else now
+        except ValueError:
+            from apps.core.exceptions import ServiceError
+            raise ServiceError("Dates must use the YYYY-MM-DD format.", code="invalid_date")
+        if end < start:
+            start, end = end, start
         if timezone.is_naive(start):
             start = timezone.make_aware(start)
         if timezone.is_naive(end):

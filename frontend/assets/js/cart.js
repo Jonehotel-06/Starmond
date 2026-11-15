@@ -41,123 +41,231 @@ export function onCartChange(handler) {
    Read
    ========================================================================== */
 
-/**
- * Fetch the authoritative cart.
- * @param {{force?:boolean}} [opts]
- */
+/** The discount code the shopper entered. The backend has no "cart coupon"
+ *  resource: a code is validated by POST /checkout/preview/ and finally
+ *  applied (and usage-counted) by POST /checkout/. We only remember the text. */
+const COUPON_KEY = 'cart_coupon';
+export function getCouponCode() { return session.get(COUPON_KEY) || ''; }
+function setCouponCode(code) { if (code) session.set(COUPON_KEY, code); else session.remove(COUPON_KEY); }
+
 export async function getCart({ force = false } = {}) {
   if (cachedCart && !force) return cachedCart;
   if (pending && !force) return pending;
   pending = api.privateGet('/cart/')
-    .then((data) => {
-      cachedCart = normalizeCart(data);
-      emit('fetch', cachedCart);
-      return cachedCart;
-    })
+    .then((data) => adopt(data, 'fetch'))
     .finally(() => { pending = null; });
   return pending;
 }
 
 export function getCachedCart() { return cachedCart; }
 
-/** Defensive normalization — tolerates a leaner backend payload. */
+/** Map one backend cart line (apps/cart/serializers.py) to the UI shape. */
+function normalizeItem(item) {
+  if (!item || typeof item !== 'object') return item;
+  if (item.product && typeof item.product === 'object') return item;
+  return {
+    id: item.id,
+    quantity: Number(item.quantity) || 0,
+    unit_price: item.unit_price,
+    line_total: item.line_total,
+    product: {
+      id: item.product,
+      name: item.product_name,
+      slug: item.product_slug,
+      url: item.product_slug ? `/products/${item.product_slug}/` : null,
+      images: item.image_url ? [{ url: item.image_url, alt: item.product_name }] : [],
+    },
+    variation: item.variation ? {
+      id: item.variation,
+      label: item.variation_label || '',
+      options: item.variation_options || {},
+    } : null,
+  };
+}
+
+/** Normalise the cart payload so pages can rely on a stable shape. */
 export function normalizeCart(data) {
   if (!data || typeof data !== 'object') {
-    return { items: [], item_count: 0, quantity_total: 0, currency: 'NGN', totals: null, warnings: [] };
+    return { items: [], item_count: 0, quantity_total: 0, currency: 'NGN', totals: null, warnings: [], changes: [], coupon: null };
   }
-  const items = Array.isArray(data.items) ? data.items : [];
+  const items = (Array.isArray(data.items) ? data.items : []).map(normalizeItem);
+  const quantity = items.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0);
+  const currency = data.currency || data.totals?.currency || 'NGN';
   return {
     ...data,
     items,
-    item_count: data.item_count ?? items.length,
-    quantity_total: data.quantity_total ?? items.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0),
-    currency: data.currency || data.totals?.currency || 'NGN',
-    totals: data.totals || {
-      subtotal: data.subtotal ?? null,
-      discount_total: data.discount_total ?? null,
-      shipping_estimate: data.shipping_estimate ?? null,
-      total: data.total ?? null,
-      currency: data.currency || 'NGN',
+    item_count: items.length,
+    quantity_total: quantity,
+    currency,
+    totals: {
+      subtotal: data.totals?.subtotal ?? data.subtotal ?? null,
+      discount_total: data.totals?.discount ?? null,
+      shipping_estimate: null, // delivery is quoted at checkout once a state is chosen
+      total: data.totals?.total ?? data.subtotal ?? null,
+      currency,
     },
+    coupon: data.coupon || null,
+    discount_code: data.coupon?.code || null,
     warnings: Array.isArray(data.warnings) ? data.warnings : [],
     changes: Array.isArray(data.changes) ? data.changes : [],
   };
 }
 
+/** Line count shown on the header badge = total units. */
 export function getCartCount(cart = cachedCart) {
   return Number(cart?.quantity_total ?? cart?.item_count ?? 0) || 0;
+}
+
+/** Store the authoritative cart, remember the server-issued guest token. */
+function adopt(data, reason) {
+  if (data?.token) api.setCartToken(data.token);
+  const previous = cachedCart;
+  cachedCart = normalizeCart(data);
+  // Keep the last verified discount until it is re-priced.
+  if (previous?.coupon && getCouponCode() && cachedCart.items.length) {
+    cachedCart.coupon = previous.coupon;
+    cachedCart.discount_code = previous.coupon.code;
+  }
+  emit(reason, cachedCart);
+  return cachedCart;
+}
+
+/**
+ * Ask the backend to price the cart (POST /checkout/preview/). Used to show a
+ * verified discount on the cart page. Never computes money in the browser.
+ */
+export async function priceCart({ code = getCouponCode() } = {}) {
+  const cart = await getCart();
+  if (!cart.items.length) { setCouponCode(''); return { cart, error: null }; }
+  const preview = await api.post('/checkout/preview/', {
+    source: { type: 'cart' },
+    promotion_code: code || '',
+    cart_token: api.getCartToken() || undefined,
+  });
+  const error = preview.promotion_error || null;
+  if (error) setCouponCode('');
+  cachedCart = {
+    ...cart,
+    totals: {
+      subtotal: preview.totals.subtotal,
+      discount_total: Number(preview.totals.discount) > 0 ? preview.totals.discount : null,
+      shipping_estimate: null,
+      total: preview.totals.total,
+      currency: preview.totals.currency,
+    },
+    coupon: preview.promotion || null,
+    discount_code: preview.promotion?.code || null,
+  };
+  emit('price', cachedCart);
+  return { cart: cachedCart, error };
 }
 
 /* ============================================================================
    Mutations — every one returns the backend's authoritative cart
    ========================================================================== */
 
-/**
- * @param {{product:string|number, variation?:string|number|null, quantity?:number}} line
- */
-export async function addItem({ product, variation = null, quantity = 1 }) {
-  const payload = { product, quantity: Number(quantity) || 1 };
-  if (variation !== null && variation !== undefined && variation !== '') payload.variation = variation;
-  const data = await api.post('/cart/items/', payload);
-  cachedCart = normalizeCart(data.cart || data);
-  emit('add', cachedCart);
+async function afterMutation(data, reason) {
+  adopt(data, reason);
+  if (getCouponCode() && cachedCart.items.length) {
+    try { await priceCart(); } catch { /* totals fall back to the subtotal */ }
+  } else if (!cachedCart.items.length) {
+    setCouponCode('');
+  }
   return cachedCart;
 }
 
+/** POST /cart/ {product, variation, quantity} */
+export async function addItem({ product, variation = null, quantity = 1 }) {
+  const payload = { product: Number(product), quantity: Number(quantity) || 1 };
+  if (variation !== null && variation !== undefined && variation !== '') payload.variation = Number(variation);
+  const data = await api.post('/cart/', payload);
+  return afterMutation(data, 'add');
+}
+
+/** PATCH /cart/items/<id>/ {quantity} */
 export async function updateItem(itemId, quantity) {
   const data = await api.patch(`/cart/items/${encodeURIComponent(itemId)}/`, { quantity: Number(quantity) });
-  cachedCart = normalizeCart(data.cart || data);
-  emit('update', cachedCart);
-  return cachedCart;
+  return afterMutation(data, 'update');
 }
 
+/** DELETE /cart/items/<id>/ */
 export async function removeItem(itemId) {
   const data = await api.delete(`/cart/items/${encodeURIComponent(itemId)}/`);
-  cachedCart = normalizeCart(data.cart || data);
-  emit('remove', cachedCart);
-  return cachedCart;
+  return afterMutation(data, 'remove');
 }
 
+/** DELETE /cart/ */
 export async function clearCart() {
-  const data = await api.delete('/cart/');
-  cachedCart = normalizeCart(data?.cart || data || null);
-  emit('clear', cachedCart);
-  return cachedCart;
+  await api.delete('/cart/');
+  setCouponCode('');
+  cachedCart = null;
+  return getCart({ force: true });
 }
 
+/** Validate a discount code against the current cart (server-side). */
 export async function applyCoupon(code) {
-  const data = await api.post('/cart/coupon/', { code: String(code).trim() });
-  cachedCart = normalizeCart(data.cart || data);
-  emit('coupon', cachedCart);
-  return { cart: cachedCart, message: data.message || data.detail || null };
+  const clean = String(code || '').trim();
+  const { cart, error } = await priceCart({ code: clean });
+  if (error || !cart.coupon) {
+    const failure = new Error(error || 'This discount code cannot be used.');
+    failure.userMessage = error || 'This discount code cannot be used.';
+    failure.fieldErrors = { code: [failure.userMessage] };
+    throw failure;
+  }
+  setCouponCode(cart.coupon.code);
+  return { cart, message: `Code ${cart.coupon.code} applied.` };
 }
 
 export async function removeCoupon() {
-  const data = await api.delete('/cart/coupon/');
-  cachedCart = normalizeCart(data.cart || data);
-  emit('coupon', cachedCart);
-  return cachedCart;
+  setCouponCode('');
+  if (cachedCart) {
+    cachedCart = normalizeCart({ ...cachedCart, totals: null, coupon: null, subtotal: cachedCart.totals?.subtotal });
+    emit('coupon', cachedCart);
+  }
+  return getCart({ force: true });
 }
 
 /**
- * Ask the backend to re-price and re-check stock before checkout.
- * Returns {cart, changes[]} where changes describe price/stock movements the
- * shopper MUST be told about. We never silently accept a new payable amount.
+ * Re-read the cart before checkout. The backend silently drops delisted
+ * products and re-checks prices, so a fresh read is the validation; lines that
+ * disappeared or changed price are reported as `changes`.
  */
 export async function validateCart() {
-  const data = await api.post('/cart/validate/', {});
-  cachedCart = normalizeCart(data.cart || data);
-  emit('validate', cachedCart);
-  return { cart: cachedCart, changes: cachedCart.changes || data.changes || [] };
+  const before = cachedCart;
+  const cart = await getCart({ force: true });
+  const changes = [];
+  if (before) {
+    before.items.forEach((old) => {
+      const now = cart.items.find((i) => String(i.id) === String(old.id));
+      if (!now) changes.push({ type: 'removed', message: `${old.product?.name || 'An item'} is no longer available and was removed.` });
+      else if (Number(now.unit_price) !== Number(old.unit_price)) changes.push({ type: 'price', message: `The price of ${now.product?.name || 'an item'} has changed.` });
+    });
+  }
+  cart.changes = changes;
+  if (getCouponCode() && cart.items.length) {
+    try { await priceCart(); } catch { /* handled by the page */ }
+  }
+  return { cart: cachedCart, changes };
 }
 
-/** Move a wishlist entry into the cart. */
-export async function moveWishlistItemToCart({ product, variation = null, quantity = 1, wishlistItemId = null }) {
-  const cart = await addItem({ product, variation, quantity });
-  if (wishlistItemId) {
-    try { await api.delete(`/wishlist/items/${encodeURIComponent(wishlistItemId)}/`); } catch { /* non-fatal */ }
+/** POST /cart/merge/ {token} — after sign-in, fold the guest cart into the account cart. */
+export async function mergeGuestCart() {
+  const token = api.getCartToken();
+  if (!token) return getCart({ force: true });
+  try {
+    const data = await api.post('/cart/merge/', { token });
+    api.clearCartToken();
+    return adopt(data, 'merge');
+  } catch {
+    api.clearCartToken();
+    return getCart({ force: true }).catch(() => null);
   }
-  return cart;
+}
+
+/** POST /customers/wishlist/move-to-cart/ {product} */
+export async function moveWishlistItemToCart({ product }) {
+  await api.post('/customers/wishlist/move-to-cart/', { product: Number(product) });
+  return getCart({ force: true });
 }
 
 /* ============================================================================
@@ -228,12 +336,14 @@ export function initCartBadge() {
 /** Drop the in-memory cart, e.g. after sign-out. */
 export function resetCartCache() {
   cachedCart = null;
+  setCouponCode('');
   emit('reset', null);
 }
 
 if (typeof window !== 'undefined') {
   window.addEventListener('starmond:auth-changed', (event) => {
-    if (event.detail?.status === 'guest') resetCartCache();
+    if (event.detail?.status === 'guest') { resetCartCache(); getCart({ force: true }).catch(() => {}); }
+    else if (event.detail?.reason === 'login') return; // auth.login() awaits mergeGuestCart()
     else getCart({ force: true }).catch(() => {});
   });
 }

@@ -39,7 +39,7 @@ class NotificationService:
         from apps.accounts.serializers import make_email_verify_token
         from apps.emails.services import EmailService
         token = make_email_verify_token(user)
-        verify_url = f"{settings.FRONTEND_BASE_URL.rstrip('/')}/verify-email?token={token}"
+        verify_url = f"{settings.FRONTEND_BASE_URL.rstrip('/')}/verify-email.html?token={token}"
         EmailService.send("verify_email", user.email,
                           {"full_name": user.full_name, "verify_url": verify_url},
                           dedupe_key=f"verify_email:{user.pk}:{user.is_email_verified}")
@@ -48,7 +48,7 @@ class NotificationService:
     @_safe
     def send_password_reset(user, uid, token, request=None):
         from apps.emails.services import EmailService
-        reset_url = f"{settings.FRONTEND_BASE_URL.rstrip('/')}/reset-password?uid={uid}&token={token}"
+        reset_url = f"{settings.FRONTEND_BASE_URL.rstrip('/')}/reset-password.html?uid={uid}&token={token}"
         EmailService.send("password_reset", user.email,
                           {"full_name": user.full_name, "reset_url": reset_url},
                           dedupe_key=f"password_reset:{user.pk}:{token}")

@@ -267,10 +267,12 @@ i[data-icon] { display: inline-flex; width: 1.125rem; height: 1.125rem; flex: no
   display: flex; flex-direction: column;
   transform: translateX(-100%);
   transition: transform var(--duration-slow) var(--ease-out);
-  box-shadow: var(--shadow-lg);
+  box-shadow: none;
+  visibility: hidden;
+  transition: transform var(--duration-slow) var(--ease-out), visibility 0s linear var(--duration-slow);
   overscroll-behavior: contain;
 }
-.drawer.is-open { transform: none; }
+.drawer.is-open { transform: none; box-shadow: var(--shadow-lg); visibility: visible; transition: transform var(--duration-slow) var(--ease-out), visibility 0s; }
 .drawer--right { left: auto; right: 0; transform: translateX(100%); }
 .drawer--right.is-open { transform: none; }
 .drawer__head {

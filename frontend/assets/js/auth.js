@@ -14,6 +14,7 @@
 
 import api, { ApiError } from './api.js';
 import { createStorage } from './utils.js';
+import { mergeGuestCart } from './cart.js';
 
 const storage = createStorage('local');
 const listeners = new Set();
@@ -68,11 +69,16 @@ export function onAuthChange(handler) {
 function absorbUser(payload) {
   const user = payload?.user || payload || null;
   if (!user || (!user.id && !user.email && !user.pk)) return null;
+  // Backend UserSerializer: {id, email, full_name, phone, is_email_verified,
+  // date_joined, role, is_staff_user, is_superuser, permissions[]}.
+  // Permissions are for UI gating only; the API re-checks every request.
+  const role = user.role && typeof user.role === 'object' ? user.role.name : user.role;
   return {
     ...user,
-    permissions: payload?.permissions || user.permissions || [],
-    roles: payload?.roles || user.roles || [],
-    is_staff: !!(payload?.is_staff ?? user.is_staff),
+    permissions: Array.isArray(user.permissions) ? user.permissions : [],
+    roles: role ? [role] : [],
+    is_staff: !!(user.is_staff_user ?? user.is_staff),
+    is_superuser: !!user.is_superuser,
   };
 }
 
@@ -118,10 +124,7 @@ async function probeSession({ force }) {
   } catch (error) {
     if (error instanceof ApiError && (error.isAuth || error.isNotFound)) {
       // In JWT mode, attempt one silent refresh before declaring the user a guest.
-      if ((api.authMode === 'jwt') && !force) {
-        const refreshed = await api.tryRefresh();
-        if (refreshed) return initAuth({ force: true });
-      }
+      api.clearAccessToken();
       storage.remove(SESSION_HINT);
       setState({ status: 'guest', user: null, permissions: [], roles: [], isStaff: false });
     } else {
@@ -134,69 +137,67 @@ async function probeSession({ force }) {
 }
 
 /** Merge the guest cart into the customer cart. Backend owns de-duplication. */
-async function mergeGuestCart() {
-  const token = storage.get('cart_token');
-  if (!token) return null;
-  try {
-    const result = await api.post('/cart/merge/', { guest_cart_token: token });
-    api.rotateCartToken();
-    api.invalidate();
-    return result;
-  } catch (error) {
-    // A merge failure must not block sign-in; surface it to the caller.
-    console.warn('[auth] guest cart merge failed', error);
-    return null;
-  }
-}
+/* ============================================================================
+   Session actions
+   ========================================================================== */
 
-export async function login({ email, password, remember = false }) {
-  const data = await api.post('/auth/login/', { email, password, remember });
+function adoptSession(data, reason) {
+  // Django rotates the CSRF token whenever the session changes.
+  api.resetCsrf();
+  api.invalidate();
+  if (data?.auth_token) api.setAccessToken(data.auth_token);
+  const user = absorbUser(data);
+  if (!user) return null;
   storage.set(SESSION_HINT, '1');
-  if (data?.access || data?.access_token) api.setAccessToken(data.access || data.access_token);
-  const user = absorbUser(data);
-  if (user) {
-    setState({ status: 'authenticated', user, permissions: user.permissions, roles: user.roles, isStaff: user.is_staff });
-  } else {
-    await initAuth({ force: true });
-  }
-  const merge = await mergeGuestCart();
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('starmond:cart-changed', { detail: { reason: 'login' } }));
-  }
-  return { user: state.user, merge };
+  Object.assign(state, {
+    status: 'authenticated', user, permissions: user.permissions, roles: user.roles, isStaff: user.is_staff,
+  });
+  listeners.forEach((fn) => { try { fn(getAuthState()); } catch (err) { console.error(err); } });
+  // `reason: 'login'` tells cart.js to merge the guest cart into the account.
+  window.dispatchEvent(new CustomEvent('starmond:auth-changed', { detail: { ...getAuthState(), reason } }));
+  return user;
 }
 
-export async function register(payload) {
-  const data = await api.post('/auth/register/', payload);
-  if (absorbUser(data)) storage.set(SESSION_HINT, '1');
-  // Some backends auto-login on register; adopt the session if one was created.
-  const user = absorbUser(data);
-  if (user) {
-    if (data?.access) api.setAccessToken(data.access);
-    setState({ status: 'authenticated', user, permissions: user.permissions, roles: user.roles, isStaff: user.is_staff });
-    await mergeGuestCart();
-  }
-  return data;
+/** POST /auth/login/ {email, password} → {user, auth_token} */
+export async function login({ email, password }) {
+  const data = await api.post('/auth/login/', { email: String(email).trim(), password });
+  const user = adoptSession(data, 'login');
+  if (!user) await initAuth({ force: true });
+  // Fold the guest cart into the account cart before the page navigates away.
+  await mergeGuestCart();
+  return { user: state.user };
+}
+
+/**
+ * POST /auth/register/ {email, full_name, phone, password} → {user_id}.
+ * Registration does not sign the customer in: the address must be verified
+ * from the emailed link first.
+ */
+export async function register({ email, full_name, phone = '', password }) {
+  return api.post('/auth/register/', { email: String(email).trim(), full_name, phone, password });
 }
 
 export async function logout() {
   try { await api.post('/auth/logout/', {}); } catch { /* local sign-out still proceeds */ }
   api.clearAccessToken();
+  api.clearCartToken();
+  api.resetCsrf();
   storage.remove(SESSION_HINT);
-  api.rotateCartToken();
   api.invalidate();
   setState({ status: 'guest', user: null, permissions: [], roles: [], isStaff: false });
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('starmond:cart-changed', { detail: { reason: 'logout' } }));
-  }
 }
 
 export const verifyEmail = (token) => api.post('/auth/verify-email/', { token });
-export const resendVerification = (email) => api.post('/auth/verify-email/resend/', { email });
-export const requestPasswordReset = (email) => api.post('/auth/password/reset/', { email });
-export const confirmPasswordReset = (payload) => api.post('/auth/password/reset/confirm/', payload);
-export const changePassword = (payload) => api.post('/auth/password/change/', payload);
+export const resendVerification = (email) => api.post('/auth/resend-verification/', { email });
+export const requestPasswordReset = (email) => api.post('/auth/password/reset/request/', { email });
+/** {uid, token, new_password} — uid and token come from the emailed link. */
+export const confirmPasswordReset = ({ uid, token, new_password }) =>
+  api.post('/auth/password/reset/confirm/', { uid, token, new_password });
+/** {current_password, new_password} */
+export const changePassword = ({ current_password, new_password }) =>
+  api.post('/auth/password/change/', { current_password, new_password });
 
+/** PATCH /auth/me/ {full_name, phone} */
 export async function updateProfile(payload) {
   const data = await api.patch('/auth/me/', payload);
   const user = absorbUser(data);
@@ -204,17 +205,12 @@ export async function updateProfile(payload) {
   return data;
 }
 
-export async function updateNotificationPreferences(payload) {
-  return api.patch('/auth/me/notification-preferences/', payload);
-}
+/** Customer profile (GET/PATCH /customers/profile/): default delivery details
+ *  and the three notification switches. */
+export const getCustomerProfile = () => api.privateGet('/customers/profile/');
+export const updateCustomerProfile = (payload) => api.patch('/customers/profile/', payload);
+export const updateNotificationPreferences = (payload) => updateCustomerProfile(payload);
 
-/* ---------------------------------------------------------------- guards -- */
-
-/**
- * Client-side route guard. This is UX only — it redirects to sign-in so the
- * shopper is not shown an empty private page. The backend still enforces access
- * on every single request.
- */
 export async function requireAuth({ redirect = true, next } = {}) {
   await initAuth({ force: true });
   if (isAuthenticated()) return true;

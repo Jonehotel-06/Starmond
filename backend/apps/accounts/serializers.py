@@ -63,18 +63,32 @@ class LoginSerializer(serializers.Serializer):
 class UserSerializer(serializers.ModelSerializer):
     role = serializers.SerializerMethodField()
     is_staff_user = serializers.SerializerMethodField()
+    is_superuser = serializers.BooleanField(read_only=True)
+    permissions = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ["id", "email", "full_name", "phone", "is_email_verified", "date_joined", "role", "is_staff_user"]
-        read_only_fields = ["id", "is_email_verified", "date_joined"]
+        fields = ["id", "email", "full_name", "phone", "is_email_verified", "date_joined", "role",
+                  "is_staff_user", "is_superuser", "permissions"]
+        read_only_fields = ["id", "email", "is_email_verified", "date_joined"]
+
+    def get_permissions(self, obj):
+        """Permission codenames for UI gating only — every staff endpoint
+        re-checks permissions server-side."""
+        if obj.is_superuser:
+            return list(ALL_PERMISSIONS)
+        profile = getattr(obj, "staff_profile", None)
+        if not profile or not profile.is_active or not profile.role:
+            return []
+        return sorted(profile.role.permissions.values_list("codename", flat=True))
 
     def get_role(self, obj):
         profile = getattr(obj, "staff_profile", None)
         return profile.role.name if profile and profile.role else None
 
     def get_is_staff_user(self, obj):
-        return obj.is_superuser or hasattr(obj, "staff_profile")
+        profile = getattr(obj, "staff_profile", None)
+        return obj.is_superuser or bool(profile and profile.is_active and profile.role)
 
 
 class EmailVerifySerializer(serializers.Serializer):

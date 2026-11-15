@@ -1,4 +1,5 @@
 # Cloudflare Pages / Netlify style redirects (place at the publish root).
+/media/*      https://your-backend-domain.example/media/:splat   200
 /api/*        https://your-backend-domain.example/api/:splat   200
 /shop/*       /category.html   200
 /products/*   /product.html    200

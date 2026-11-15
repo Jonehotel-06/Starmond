@@ -98,12 +98,14 @@ class PaystackService:
     # --------------------------------------------------------------- webhook
     @staticmethod
     def verify_webhook_signature(raw_body: bytes, signature_header: str) -> bool:
-        if not settings.PAYSTACK_WEBHOOK_SECRET:
-            logger.error("PAYSTACK_WEBHOOK_SECRET not configured — rejecting webhook.")
+        secrets = {s for s in (settings.PAYSTACK_WEBHOOK_SECRET, settings.PAYSTACK_SECRET_KEY) if s}
+        if not secrets:
+            logger.error("Paystack secret not configured — rejecting webhook.")
             return False
         if not signature_header:
             return False
-        expected = hmac.new(
-            settings.PAYSTACK_WEBHOOK_SECRET.encode(), raw_body, digestmod=hashlib.sha512
-        ).hexdigest()
-        return hmac.compare_digest(expected, signature_header)
+        for secret in secrets:
+            expected = hmac.new(secret.encode(), raw_body, digestmod=hashlib.sha512).hexdigest()
+            if hmac.compare_digest(expected, signature_header):
+                return True
+        return False

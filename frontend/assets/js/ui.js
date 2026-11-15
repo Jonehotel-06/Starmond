@@ -611,11 +611,21 @@ export async function withSubmit(form, button, handler) {
   try {
     return await handler();
   } catch (error) {
-    if (error?.fieldErrors || error?.isValidation) {
-      applyFormErrors(form, error.fieldErrors || { detail: error.message });
-    } else {
-      applyFormErrors(form, { detail: error?.userMessage || error?.message || 'Something went wrong.' });
-    }
+    // Show field messages next to their inputs; anything the form has no
+    // input for (and every non-field error) goes into the summary alert so the
+    // real reason is never hidden behind a generic message.
+    const fieldErrors = error?.fieldErrors || {};
+    const shown = {};
+    const orphan = [];
+    Object.entries(fieldErrors).forEach(([name, message]) => {
+      const text = Array.isArray(message) ? message.join(' ') : String(message);
+      const known = form.querySelector(`[data-error-for="${CSS.escape(name)}"]`) || form.elements?.[name];
+      if (known && !['detail', 'non_field_errors', '__all__'].includes(name)) shown[name] = text;
+      else orphan.push(text);
+    });
+    const general = orphan.join(' ') || (Object.keys(shown).length ? '' : (error?.userMessage || error?.message || 'Something went wrong.'));
+    if (general) shown.detail = general;
+    applyFormErrors(form, shown);
     throw error;
   } finally {
     if (button) { button.disabled = false; button.innerHTML = original; hydrateIcons(button); }

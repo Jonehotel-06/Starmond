@@ -169,13 +169,23 @@ AUTH_PASSWORD_VALIDATORS = [
 
 # Sessions / cookies — secure defaults; tightened in production settings.
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = "Lax"
+# SameSite=Lax is correct when the storefront and API share a site (same origin
+# behind a reverse proxy, or www.example.com + api.example.com). Only a
+# deployment on two unrelated sites needs "None" (which also requires HTTPS).
+SESSION_COOKIE_SAMESITE = config("SESSION_COOKIE_SAMESITE", default="Lax")
 CSRF_COOKIE_HTTPONLY = False  # frontend JS must read the CSRF cookie
-CSRF_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = config("CSRF_COOKIE_SAMESITE", default="Lax")
+SESSION_COOKIE_DOMAIN = config("SESSION_COOKIE_DOMAIN", default="") or None
+CSRF_COOKIE_DOMAIN = config("CSRF_COOKIE_DOMAIN", default="") or None
 CSRF_TRUSTED_ORIGINS = config("CSRF_TRUSTED_ORIGINS", default="http://localhost:3000", cast=Csv())
 CORS_ALLOWED_ORIGINS = config("CORS_ALLOWED_ORIGINS", default="http://localhost:3000", cast=Csv())
 CORS_ALLOW_CREDENTIALS = True
-CORS_EXPOSE_HEADERS = ["X-Request-ID", "X-Response-Time-Ms", "X-CSRFToken"]
+CORS_EXPOSE_HEADERS = ["X-Request-ID", "X-Response-Time-Ms", "X-CSRFToken", "Content-Disposition"]
+# Custom request headers the storefront sends (guest cart token, idempotent checkout).
+CORS_ALLOW_HEADERS = [
+    "accept", "authorization", "content-type", "origin", "user-agent",
+    "x-csrftoken", "x-requested-with", "x-cart-token", "idempotency-key",
+]
 
 # ---------------------------------------------------------------- I18N / time
 LANGUAGE_CODE = "en-ng"
@@ -295,8 +305,16 @@ EMAIL_MAX_AUTO_ATTEMPTS = config("EMAIL_MAX_AUTO_ATTEMPTS", default=4, cast=int)
 # ---------------------------------------------------------------- Paystack
 PAYSTACK_PUBLIC_KEY = config("PAYSTACK_PUBLIC_KEY", default="")
 PAYSTACK_SECRET_KEY = config("PAYSTACK_SECRET_KEY", default="")
-PAYSTACK_WEBHOOK_SECRET = config("PAYSTACK_WEBHOOK_SECRET", default="")
-PAYSTACK_BASE_URL = "https://api.paystack.co"
+# Paystack signs webhooks (HMAC-SHA512) with the account SECRET KEY. The
+# dedicated variable exists for key-rotation windows; it falls back to the
+# secret key when left empty.
+PAYSTACK_WEBHOOK_SECRET = config("PAYSTACK_WEBHOOK_SECRET", default="") or PAYSTACK_SECRET_KEY
+# Only overridden in development/tests to point at a local Paystack test double.
+PAYSTACK_BASE_URL = config("PAYSTACK_BASE_URL", default="https://api.paystack.co").rstrip("/")
+# Where Paystack returns the shopper. The page re-verifies with the backend;
+# the redirect itself is never trusted as proof of payment.
+PAYSTACK_CALLBACK_URL = config(
+    "PAYSTACK_CALLBACK_URL", default=f"{FRONTEND_BASE_URL.rstrip('/')}/payment-pending.html")
 PAYSTACK_CURRENCY = config("PAYSTACK_CURRENCY", default="NGN")
 PAYSTACK_VERIFY_RETRIES = config("PAYSTACK_VERIFY_RETRIES", default=3, cast=int)
 

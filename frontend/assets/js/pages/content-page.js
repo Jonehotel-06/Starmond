@@ -60,8 +60,21 @@ if (aboutCategories) {
 const faqHolder = $('[data-faq-list]');
 if (faqHolder) {
   try {
-    const data = await api.publicGet('/faqs/');
-    const faqs = normalizeList(data).results;
+    // FAQs are a CMS page (slug "faq") managed in Admin → Pages. Each <h2>/<h3>
+    // heading in the page body becomes a question; the content under it is the answer.
+    const settings = await getSettings();
+    if (!settings.loaded) throw new Error('settings unavailable');
+    const page = settings.policies?.faq;
+    const faqs = [];
+    if (page?.body_html) {
+      const doc = new DOMParser().parseFromString(sanitizeHtml(page.body_html), 'text/html');
+      let current = null;
+      [...doc.body.children].forEach((node) => {
+        if (/^H[2-4]$/.test(node.tagName)) { current = { question: node.textContent.trim(), answer_html: '' }; faqs.push(current); }
+        else if (current) current.answer_html += node.outerHTML;
+      });
+      if (!faqs.length) faqs.push({ question: page.title || 'Frequently asked questions', answer_html: doc.body.innerHTML });
+    }
     if (!faqs.length) {
       resolveRegion(faqHolder, emptyState({
         title: 'No FAQs published yet',

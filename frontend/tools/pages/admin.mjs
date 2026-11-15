@@ -45,40 +45,44 @@ function modulePage(mod, { description, primaryAction = null }) {
 }
 
 const DESCRIPTIONS = {
-  products: 'Create, edit, archive and publish products. Prices and stock remain backend-authoritative.',
+  content: 'About, FAQ and policy pages shown on the storefront.',
+  banners: 'Promotional banners shown on the homepage, with optional start and end dates.',
+  'homepage-sections': 'The blocks that make up the homepage, and their order.',
+  products: 'Create, edit, publish and archive products, their images and variations. Prices and stock are enforced by the server.',
   categories: 'Manage top-level departments, their imagery, ordering and SEO fields.',
   subcategories: 'Manage nested categories under any parent department.',
-  variations: 'Manage product options such as size and colour, and their SKUs.',
-  inventory: 'Track stock levels, low-stock alerts and stock adjustments.',
+  inventory: 'Stock on hand, reserved and available per product or variation. Every change is recorded as a stock movement.',
   media: 'Upload and organise product, category and content imagery.',
-  orders: 'Review orders, update fulfilment status and manage exceptions.',
-  payments: 'Inspect Paystack transactions and their verified status.',
-  refunds: 'Review refund requests and process approved refunds.',
-  delivery: 'Manage delivery methods, assignments and dispatch updates.',
-  'shipping-zones': 'Define delivery coverage and zone-based shipping rates.',
-  customers: 'View customer records and their order activity.',
+  orders: 'Review orders, update fulfilment status, add internal notes and print receipts.',
+  payments: 'Paystack transactions and their server-verified status.',
+  refunds: 'Review refund requests, approve or reject them and track provider status.',
+  delivery: 'Delivery methods, fees, free-delivery thresholds and delivery estimates.',
+  'shipping-zones': 'Group the states you deliver to. Delivery methods can be limited to a zone.',
+  customers: 'Registered customers and their order activity.',
   reviews: 'Moderate customer reviews before they appear on the storefront.',
-  enquiries: 'Respond to messages submitted through the contact form.',
-  newsletter: 'Manage newsletter subscribers and consent records.',
-  discounts: 'Create and manage discount codes and their eligibility rules.',
-  promotions: 'Manage promotional banners and campaign scheduling.',
-  notifications: 'Notification templates and delivery status.',
-  'email-logs': 'Delivery log for transactional and marketing email.',
-  staff: 'Invite staff, assign roles and review effective permissions.',
-  'audit-logs': 'Immutable record of administrative actions.',
+  enquiries: 'Messages submitted through the contact form.',
+  newsletter: 'Newsletter subscribers and their consent status.',
+  promotions: 'Discount codes, their eligibility rules, usage limits and schedule.',
+  'email-logs': 'Delivery log for transactional email.',
+  staff: 'Create staff accounts, assign roles and deactivate access.',
+  roles: 'Define roles and the permissions each role grants.',
+  'audit-logs': 'Read-only record of administrative actions.',
 };
 
+// Permission codenames match backend/apps/core/constants.py::Perm exactly.
 const PRIMARY = {
-  products: { label: 'New product', perm: 'products.create' },
-  categories: { label: 'New category', perm: 'categories.create' },
-  subcategories: { label: 'New subcategory', perm: 'categories.create' },
-  variations: { label: 'New variation', perm: 'products.create' },
-  'shipping-zones': { label: 'New zone', perm: 'delivery.create' },
-  delivery: { label: 'New delivery method', perm: 'delivery.create' },
-  discounts: { label: 'New discount', perm: 'discounts.create' },
-  promotions: { label: 'New promotion', perm: 'promotions.create' },
-  staff: { label: 'Invite staff', perm: 'staff.create' },
-  media: { label: 'Upload media', perm: 'media.create' },
+  content: { label: 'New page', perm: 'cms.manage' },
+  banners: { label: 'New banner', perm: 'cms.manage' },
+  'homepage-sections': { label: 'New section', perm: 'cms.manage' },
+  products: { label: 'New product', perm: 'products.manage' },
+  categories: { label: 'New category', perm: 'categories.manage' },
+  subcategories: { label: 'New subcategory', perm: 'categories.manage' },
+  'shipping-zones': { label: 'New zone', perm: 'shipping.manage' },
+  delivery: { label: 'New delivery method', perm: 'shipping.manage' },
+  promotions: { label: 'New promotion', perm: 'promotions.manage' },
+  staff: { label: 'New staff account', perm: 'staff.manage' },
+  roles: { label: 'New role', perm: 'staff.manage' },
+  media: { label: 'Upload media', perm: 'media.manage' },
 };
 
 /* ---------------------------------------------------------------- custom -- */
@@ -130,40 +134,48 @@ const dashboardBody = `<div class="admin-page-head">
 
 const reportsBody = `<div class="admin-page-head">
   <div class="admin-page-head__text">
-    <h2 class="admin-page-head__title">Financial reports</h2>
-    <p class="admin-page-head__sub">All figures are generated by the backend reporting service. Orders created, paid, fulfilled, cancelled and refunded are reported separately.</p>
-  </div>
-  <div class="admin-page-head__actions">
-    <button type="button" class="btn btn--secondary" data-export="csv" data-perm="reports.export"><i data-icon="download" data-size="sm"></i> CSV</button>
-    <button type="button" class="btn btn--secondary" data-export="xlsx" data-perm="reports.export"><i data-icon="download" data-size="sm"></i> Excel</button>
-    <button type="button" class="btn btn--secondary" data-export="pdf" data-perm="reports.export"><i data-icon="download" data-size="sm"></i> PDF</button>
+    <h2 class="admin-page-head__title">Reports</h2>
+    <p class="admin-page-head__sub">Figures come from the reporting service. Revenue counts verified successful payments only; unpaid orders are reported separately.</p>
   </div>
 </div>
 
 <div class="card">
   <div class="card__body">
-    <form class="report-filters" data-report-filters>
-      <div class="field"><label class="field__label" for="rp-from">From</label><input class="input" id="rp-from" name="date_from" type="date"></div>
-      <div class="field"><label class="field__label" for="rp-to">To</label><input class="input" id="rp-to" name="date_to" type="date"></div>
-      <div class="field"><label class="field__label" for="rp-group">Group by</label>
-        <select class="select" id="rp-group" name="group_by"><option value="day">Day</option><option value="week">Week</option><option value="month" selected>Month</option></select>
-      </div>
-      <div class="field"><label class="field__label" for="rp-category">Category</label><select class="select" id="rp-category" name="category"><option value="">All categories</option></select></div>
+    <form class="report-filters" data-report-filters novalidate>
+      <div class="field"><label class="field__label" for="rp-from">From</label><input class="input" id="rp-from" name="date_from" type="date" required></div>
+      <div class="field"><label class="field__label" for="rp-to">To</label><input class="input" id="rp-to" name="date_to" type="date" required></div>
       <button class="btn btn--primary" type="submit">Apply</button>
+      <span class="report-filters__spacer"></span>
+      <div class="field"><label class="field__label" for="rp-export">Download report</label>
+        <select class="select" id="rp-export" data-export-report>
+          <option value="sales">Sales by day</option>
+          <option value="categories">Sales by category</option>
+          <option value="products">Best-selling products</option>
+          <option value="orders">Orders</option>
+          <option value="payments">Payments ledger</option>
+          <option value="refunds">Refunds ledger</option>
+        </select>
+      </div>
+      <div class="cluster cluster--sm" role="group" aria-label="Download format">
+        <button type="button" class="btn btn--secondary" data-export="csv"><i data-icon="download" data-size="sm"></i> CSV</button>
+        <button type="button" class="btn btn--secondary" data-export="xlsx"><i data-icon="download" data-size="sm"></i> Excel</button>
+        <button type="button" class="btn btn--secondary" data-export="pdf"><i data-icon="download" data-size="sm"></i> PDF</button>
+      </div>
     </form>
+    <p class="field__error" data-report-error role="alert"></p>
   </div>
 </div>
 
-<div data-report-summary data-loading-region aria-busy="true">${statSkeletons(4)}</div>
+<div data-report-summary data-loading-region aria-busy="true">${statSkeletons(8)}</div>
 
 <div class="admin-grid-2">
   <div class="card">
-    <div class="card__head"><h3 class="card__title">Sales over time</h3></div>
+    <div class="card__head"><h3 class="card__title">Collected revenue per day</h3></div>
     <div class="card__body" data-report-chart data-loading-region aria-busy="true"><div class="stack" aria-hidden="true"><span class="sk" style="height:220px;border-radius:var(--radius-md)"></span></div></div>
   </div>
   <div class="card">
-    <div class="card__head"><h3 class="card__title">Payment outcomes</h3></div>
-    <div class="card__body" data-report-payments data-loading-region aria-busy="true">${tableSkeleton(5, 2)}</div>
+    <div class="card__head"><h3 class="card__title">Orders by status</h3></div>
+    <div class="card__body card__body--flush" data-report-lifecycle data-loading-region aria-busy="true">${tableSkeleton(5, 3)}</div>
   </div>
 </div>
 
@@ -173,14 +185,20 @@ const reportsBody = `<div class="admin-page-head">
     <div class="card__body card__body--flush" data-report-categories data-loading-region aria-busy="true">${tableSkeleton(5, 3)}</div>
   </div>
   <div class="card">
-    <div class="card__head"><h3 class="card__title">Order lifecycle</h3></div>
-    <div class="card__body card__body--flush" data-report-lifecycle data-loading-region aria-busy="true">${tableSkeleton(5, 2)}</div>
+    <div class="card__head"><h3 class="card__title">Best-selling products</h3></div>
+    <div class="card__body card__body--flush" data-report-products data-loading-region aria-busy="true">${tableSkeleton(5, 3)}</div>
   </div>
 </div>
 
-<div class="card">
-  <div class="card__head"><h3 class="card__title">Best-selling products</h3></div>
-  <div class="card__body card__body--flush" data-report-products data-loading-region aria-busy="true">${tableSkeleton(6, 4)}</div>
+<div class="admin-grid-2">
+  <div class="card">
+    <div class="card__head"><h3 class="card__title">Payments</h3><span class="t-meta" data-report-payments-count></span></div>
+    <div class="card__body card__body--flush" data-report-payments data-loading-region aria-busy="true">${tableSkeleton(5, 4)}</div>
+  </div>
+  <div class="card">
+    <div class="card__head"><h3 class="card__title">Refunds</h3><span class="t-meta" data-report-refunds-count></span></div>
+    <div class="card__body card__body--flush" data-report-refunds data-loading-region aria-busy="true">${tableSkeleton(5, 4)}</div>
+  </div>
 </div>`;
 
 function settingsPage(id, title, sub, formId) {
@@ -203,7 +221,7 @@ const mediaBody = `<div class="admin-page-head">
     <p class="admin-page-head__sub">Upload and organise imagery. Alt text is required so every published image is accessible and indexable.</p>
   </div>
   <div class="admin-page-head__actions">
-    <button type="button" class="btn btn--primary" data-media-upload data-perm="media.create"><i data-icon="upload" data-size="sm"></i> Upload media</button>
+    <button type="button" class="btn btn--primary" data-media-upload data-perm="media.manage"><i data-icon="upload" data-size="sm"></i> Upload media</button>
   </div>
 </div>
 <div class="data-panel" data-admin-module="media">
@@ -231,7 +249,7 @@ const mediaBody = `<div class="admin-page-head">
 
 const TITLES = {
   dashboard: 'Dashboard', reports: 'Reports', settings: 'Business settings',
-  homepage: 'Homepage management', content: 'Website content', seo: 'SEO settings', media: 'Media library',
+  homepage: 'Homepage hero', content: 'Pages & policies', seo: 'SEO settings', media: 'Media library',
 };
 
 export const adminPages = allModules.map((mod) => {
@@ -241,14 +259,13 @@ export const adminPages = allModules.map((mod) => {
   else if (mod.id === 'reports') body = reportsBody;
   else if (mod.id === 'media') body = mediaBody;
   else if (mod.id === 'settings') body = settingsPage(mod.id, heading, 'Business identity, contact details, currency and storefront defaults.', 'business');
-  else if (mod.id === 'homepage') body = settingsPage(mod.id, heading, 'Hero content, section visibility, trust items and promotional banners.', 'homepage');
-  else if (mod.id === 'content') body = settingsPage(mod.id, heading, 'About page, policies, FAQs and footer content.', 'content');
-  else if (mod.id === 'seo') body = settingsPage(mod.id, heading, 'Default metadata, social sharing, sitemap and indexing controls.', 'seo');
+  else if (mod.id === 'homepage') body = settingsPage(mod.id, heading, 'The headline area at the top of the storefront homepage, and the footer note.', 'homepage');
+  else if (mod.id === 'seo') body = settingsPage(mod.id, heading, 'Default titles, descriptions, social sharing image and indexing defaults.', 'seo');
   else body = modulePage(mod, { description: DESCRIPTIONS[mod.id] || `Manage ${mod.label.toLowerCase()}.`, primaryAction: PRIMARY[mod.id] || null });
 
   const moduleName = ['dashboard', 'reports', 'media'].includes(mod.id)
     ? `/assets/js/admin/${mod.id}.js`
-    : ['settings', 'homepage', 'content', 'seo'].includes(mod.id)
+    : ['settings', 'homepage', 'seo'].includes(mod.id)
       ? '/assets/js/admin/settings.js'
       : '/assets/js/admin/module.js';
 

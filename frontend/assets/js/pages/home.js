@@ -8,7 +8,7 @@
 
 import boot from '../boot.js';
 import api, { normalizeList } from '../api.js';
-import { getSettings } from '../site.js';
+import { getSettings, getHomepage } from '../site.js';
 import { getCategories, renderCategoryCards } from '../categories.js';
 import { listProducts, renderProductGrid, renderStars, productImage, PRODUCT_URL } from '../products.js';
 import { skeletons, resolveRegion, renderRegionError, emptyState, toast, withSubmit, formData, applyFormErrors } from '../ui.js';
@@ -109,8 +109,13 @@ async function loadPromo() {
   const region = $('[data-home-promo]');
   if (!section || !region) return;
   try {
-    const data = await api.publicGet('/promotions/active/', { params: { placement: 'home_banner', limit: 1 } });
-    const promo = normalizeList(data).results[0];
+    // Campaign banners are managed in Admin → Banners (GET /cms/homepage/).
+    const home = await getHomepage();
+    const banner = (home?.banners || [])[0];
+    const promo = banner ? {
+      title: banner.title, description: banner.subtitle, image_url: banner.image_url,
+      cta_url: banner.link_url, cta_label: 'Shop now',
+    } : null;
     if (!promo) { section.hidden = true; return; }
     section.hidden = false;
     region.innerHTML = `<div class="promo">
@@ -152,25 +157,26 @@ async function loadReviews() {
   const section = $('[data-home-reviews-section]');
   if (!region) return;
   try {
-    const data = await api.publicGet('/reviews/', { params: { approved: 1, featured: 1, limit: 3 } });
+    const data = await api.publicGet('/reviews/recent/', { params: { limit: 3 } });
     const reviews = normalizeList(data).results;
-    if (!reviews.length) { section.hidden = true; return; }
+    if (!reviews.length) { if (section) section.hidden = true; resolveRegion(region, ''); return; }
     section.hidden = false;
     resolveRegion(region, `<div class="grid grid--3">${reviews.map((review) => {
-      const product = review.product;
+      const product = review.product_slug ? { slug: review.product_slug, name: review.product_name } : null;
       return `<article class="panel stack">
         ${typeof review.rating === 'number' ? renderStars(review.rating) : ''}
         ${review.title ? `<h3 class="t-md t-semibold">${esc(review.title)}</h3>` : ''}
         <p class="t-sm t-body">${esc(truncate(stripTags(review.body || review.comment || ''), 220))}</p>
         <div class="cluster cluster--sm">
           <span class="t-sm t-medium">${esc(review.display_name || review.customer_name || 'Verified customer')}</span>
-          ${review.verified_purchase ? `<span class="badge badge--success badge--dot">Verified purchase</span>` : ''}
+          ${review.is_verified_purchase ? `<span class="badge badge--success badge--dot">Verified purchase</span>` : ''}
         </div>
         ${product ? `<a class="t-xs" href="${esc(PRODUCT_URL(product))}">${esc(product.name || 'View product')}</a>` : ''}
       </article>`;
     }).join('')}</div>`);
   } catch {
-    section.hidden = true;
+    if (section) section.hidden = true;
+    resolveRegion(region, '');
   }
 }
 
@@ -189,15 +195,15 @@ function initNewsletter() {
 
     const button = form.querySelector('button[type="submit"]');
     try {
-      await withSubmit(form, button, () => api.post('/newsletter/subscribe/', {
-        email: String(data.email).trim(), consent: true, source: 'homepage',
+      await withSubmit(form, button, () => api.post('/notifications/newsletter/', {
+        email: String(data.email).trim().toLowerCase(),
       }));
       form.reset();
-      toast('You are subscribed. Check your inbox to confirm.', { type: 'success', title: 'Thank you' });
+      toast('You are subscribed to Starmond updates.', { type: 'success', title: 'Thank you' });
       const success = document.createElement('p');
       success.className = 't-sm t-success t-semibold';
       success.setAttribute('role', 'status');
-      success.textContent = 'Subscription received. Please check your email to confirm.';
+      success.textContent = 'Subscription received. You can unsubscribe at any time.';
       form.appendChild(success);
     } catch { /* withSubmit already rendered the error */ }
   });
@@ -207,14 +213,14 @@ function initNewsletter() {
 
 loadHero();
 loadCategories();
-productSection('[data-home-featured]', () => listProducts({ featured: 1, page_size: 4 }), {
+productSection('[data-home-featured]', () => listProducts({ featured: true, page_size: 4 }), {
   emptyTitle: 'No featured products yet', emptyText: 'Featured products will appear here once selected by our team.',
 });
-productSection('[data-home-new]', () => listProducts({ ordering: '-published_at', page_size: 4 }), {
+productSection('[data-home-new]', () => listProducts({ ordering: '-created_at', page_size: 4 }), {
   emptyTitle: 'No new arrivals yet', emptyText: 'Recently published products will appear here.',
 });
-productSection('[data-home-best]', () => listProducts({ ordering: '-units_sold', page_size: 4 }), {
-  emptyTitle: 'Best sellers are not available yet', emptyText: 'This list is ranked by confirmed sales and appears once orders are recorded.',
+productSection('[data-home-best]', () => listProducts({ best_sellers: true, page_size: 4 }), {
+  emptyTitle: 'Best sellers are not available yet', emptyText: 'Best sellers appear here once the store team marks them.',
 });
 loadPromo();
 loadTrust();
